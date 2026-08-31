@@ -27,6 +27,7 @@
   const NAVIGATION_DISPOSITION = globalThis.LumnoNavigationDisposition || {};
   const COMMUNITY_LINKS = globalThis.LumnoCommunityLinks || {};
   const SETTINGS = globalThis.LumnoSettings || {};
+  const AGGREGATE_SEARCH_STORE = globalThis.LumnoAggregateSearchStore || {};
   const SHORTCUT_FAVICON = globalThis.LumnoShortcutFavicon || {};
   const LUMNO_FEEDBACK_SUPPORT_LINKS_FALLBACK = COMMUNITY_LINKS.FALLBACK_LINKS;
   const panel = document.getElementById('_x_extension_settings_panel_2024_unique_');
@@ -152,6 +153,8 @@
   const feedbackSupportHost = document.getElementById('_x_extension_feedback_support_2026_unique_');
   const openShortcutsPageButton = document.getElementById('_x_extension_open_shortcuts_page_2026_unique_');
   const siteSearchEngineBuiltinList = document.getElementById('_x_extension_search_engine_builtin_list_2026_unique_');
+  const aggregateSearchList = document.getElementById('_x_extension_aggregate_search_list_2026_unique_');
+  const aggregateSearchClearButton = document.getElementById('_x_extension_aggregate_search_clear_2026_unique_');
   const siteSearchCustomList = document.getElementById('_x_extension_site_search_custom_list_2024_unique_');
   const siteSearchBuiltinList = document.getElementById('_x_extension_site_search_builtin_list_2024_unique_');
   const siteSearchAiGroup = document.getElementById('_x_extension_site_search_ai_group_2026_unique_');
@@ -181,6 +184,7 @@
   const confirmCancel = document.getElementById('_x_extension_confirm_cancel_2024_unique_');
   const confirmDialog = document.querySelector('._x_extension_confirm_dialog_2024_unique_');
   const optionsBlacklistListApi = globalThis.LumnoOptionsBlacklistList || {};
+  const optionsAggregateSearchListApi = globalThis.LumnoOptionsAggregateSearchList || {};
   const optionsFeedbackSupportApi = globalThis.LumnoOptionsFeedbackSupport || {};
   const optionsInfoButtonApi = globalThis.LumnoOptionsInfoButton || {};
   const optionsToastApi = globalThis.LumnoOptionsToast || {};
@@ -466,6 +470,13 @@
     siteSearchAiBuiltinList,
     'builtin-ai'
   );
+  const aggregateSearchListController =
+    typeof optionsAggregateSearchListApi.createAggregateSearchListController === 'function'
+      ? optionsAggregateSearchListApi.createAggregateSearchListController(aggregateSearchList, {
+          onRemove: handleAggregateSearchRemove,
+          onSave: handleAggregateSearchSave
+        })
+      : null;
   const siteSearchFormController =
     typeof optionsSettingsFormsApi.createSiteSearchFormController === 'function'
       ? optionsSettingsFormsApi.createSiteSearchFormController(siteSearchForm, {
@@ -906,6 +917,9 @@
   const FALLBACK_SHORTCUT_STORAGE_KEY = '_x_extension_fallback_hotkey_2024_unique_';
   const SITE_SEARCH_STORAGE_KEY = '_x_extension_site_search_custom_2024_unique_';
   const SITE_SEARCH_DISABLED_STORAGE_KEY = '_x_extension_site_search_disabled_2024_unique_';
+  const AGGREGATE_SEARCH_STORAGE_KEY = SETTINGS.AGGREGATE_SEARCH_STORAGE_KEY ||
+    AGGREGATE_SEARCH_STORE.STORAGE_KEY ||
+    '_x_extension_aggregate_searches_2026_unique_';
   const SEARCH_BLACKLIST_STORAGE_KEY = '_x_extension_search_blacklist_2026_unique_';
   const FAVICON_REQUEST_BLACKLIST_STORAGE_KEY = '_x_extension_favicon_request_blacklist_2026_unique_';
   const FAVICON_ENHANCED_FETCH_ENABLED_STORAGE_KEY = '_x_extension_favicon_enhanced_fetch_enabled_2026_unique_';
@@ -985,6 +999,7 @@
     FALLBACK_SHORTCUT_STORAGE_KEY,
     SITE_SEARCH_STORAGE_KEY,
     SITE_SEARCH_DISABLED_STORAGE_KEY,
+    AGGREGATE_SEARCH_STORAGE_KEY,
     SEARCH_BLACKLIST_STORAGE_KEY,
     FAVICON_REQUEST_BLACKLIST_STORAGE_KEY,
     FAVICON_ENHANCED_FETCH_ENABLED_STORAGE_KEY,
@@ -1004,7 +1019,11 @@
   let mediaListenerAttached = false;
   let defaultSiteSearchProviders = [];
   let customSiteSearchProviders = [];
+  let customSiteSearchProviderIdsReady = true;
   let disabledSiteSearchKeys = new Set();
+  let aggregateSearches = [];
+  let aggregateSearchesReady = false;
+  let aggregateSearchStateCoordinator = null;
   let confirmResolver = null;
   let confirmOffset = { x: 0, y: 0 };
   let confirmClosingTimer = null;
@@ -1016,6 +1035,8 @@
   let siteSearchFormExpanded = false;
   let siteSearchRefreshSuppressUntil = 0;
   let siteSearchRefreshTimer = null;
+  let siteSearchProviderRefreshCoordinator = null;
+  let siteSearchProviderStorageOperationQueue = Promise.resolve();
   let pendingOptionsScrollTarget = '';
   let currentShortcutLabel = null;
   let isCapturingFallbackShortcut = false;
@@ -1071,6 +1092,49 @@
   const fallbackSiteSearchProviders = typeof SEARCH_UTILS.getDefaultSiteSearchProviders === 'function'
     ? SEARCH_UTILS.getDefaultSiteSearchProviders()
     : [];
+
+  function createPersistentId(prefix) {
+    const safePrefix = String(prefix || 'item').replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'item';
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+      return `${safePrefix}-${globalThis.crypto.randomUUID()}`;
+    }
+    return `${safePrefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  }
+
+  function createDeterministicLegacyProviderId(item, index, attempt) {
+    if (typeof AGGREGATE_SEARCH_STORE.createDeterministicCustomProviderId === 'function') {
+      return AGGREGATE_SEARCH_STORE.createDeterministicCustomProviderId(item, index, attempt);
+    }
+    return `source-legacy-${Math.max(0, Number(index) || 0) + 1}` +
+      `-${Math.max(0, Number(attempt) || 0) + 1}`;
+  }
+
+  function ensureCustomSiteSearchProviderIds(items) {
+    if (typeof AGGREGATE_SEARCH_STORE.ensureCustomProviderIds === 'function') {
+      return AGGREGATE_SEARCH_STORE.ensureCustomProviderIds(
+        items,
+        createDeterministicLegacyProviderId
+      );
+    }
+    let changed = false;
+    const used = new Set();
+    const next = (Array.isArray(items) ? items : []).map((item, index) => {
+      let id = String(item && item.id ? item.id : '').trim();
+      if (!id || used.has(id.toLowerCase())) {
+        let attempts = 0;
+        do {
+          id = createDeterministicLegacyProviderId(item, index, attempts);
+          attempts += 1;
+        } while (used.has(id.toLowerCase()));
+        changed = true;
+      }
+      used.add(id.toLowerCase());
+      return id === String(item && item.id ? item.id : '').trim()
+        ? item
+        : { ...item, id };
+    });
+    return { changed, items: next };
+  }
 
   let feedbackSupportLinks = LUMNO_FEEDBACK_SUPPORT_LINKS_FALLBACK;
   let currentThemeMode = 'system';
@@ -1858,6 +1922,7 @@
     }
     const normalizedKey = key.toLowerCase();
     const nextItem = normalizeSiteSearchProvider({
+      id: createPersistentId('source'),
       aliases,
       key,
       name: name || key,
@@ -1872,13 +1937,13 @@
         (item) => String(item.key || '').toLowerCase() !== normalizedKey
       )
     );
-    disabledSiteSearchKeys.delete(normalizedKey);
+    const nextDisabledKeys = new Set(disabledSiteSearchKeys);
+    nextDisabledKeys.delete(normalizedKey);
     try {
-      await Promise.all([
-        saveCustomSiteSearchProviders(next),
-        saveDisabledSiteSearchKeys(disabledSiteSearchKeys)
-      ]);
+      await saveSiteSearchProviderState(next, nextDisabledKeys);
       customSiteSearchProviders = next;
+      customSiteSearchProviderIdsReady = true;
+      disabledSiteSearchKeys = nextDisabledKeys;
       renderSiteSearchList();
       refreshSiteSearchProviders();
       setTimeout(() => {
@@ -3228,6 +3293,16 @@
     customClearButton.setAttribute('data-tooltip', text);
   }
 
+  function updateAggregateSearchClearTooltip() {
+    if (!aggregateSearchClearButton) {
+      return;
+    }
+    const text = getMessage('aggregate_search_clear', '清空聚合搜索');
+    aggregateSearchClearButton.removeAttribute('title');
+    aggregateSearchClearButton.setAttribute('aria-label', text);
+    aggregateSearchClearButton.setAttribute('data-tooltip', text);
+  }
+
   function updateBlacklistClearTooltip() {
     if (!blacklistClearButton) {
       return;
@@ -3239,8 +3314,14 @@
   }
 
   function showToast(message, isError) {
+    const errorToast = Boolean(isError);
+    if (toastElement) {
+      toastElement.setAttribute('role', errorToast ? 'alert' : 'status');
+      toastElement.setAttribute('aria-live', errorToast ? 'assertive' : 'polite');
+      toastElement.setAttribute('aria-atomic', 'true');
+    }
     toastController.show(message, {
-      error: Boolean(isError)
+      error: errorToast
     });
   }
 
@@ -3486,23 +3567,29 @@
     }
 
     function setPopconfirmOpen(open) {
-      popconfirmController.render(getPopconfirmRenderModel(open));
+      const nextOpen = Boolean(open);
+      popconfirmController.render(getPopconfirmRenderModel(nextOpen));
+      trigger.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
     }
 
-    function closePopconfirm() {
+    function closePopconfirm(closeOptions) {
+      const shouldRestoreFocus = Boolean(closeOptions && closeOptions.restoreFocus);
       setPopconfirmOpen(false);
       if (activePopconfirm === popconfirm) {
         activePopconfirm = null;
+      }
+      if (shouldRestoreFocus && trigger.isConnected && typeof trigger.focus === 'function') {
+        trigger.focus({ preventScroll: true });
       }
     }
     popconfirm._xOptionsClosePopconfirm = closePopconfirm;
 
     popconfirmController = reactApi.createPopconfirmController(popconfirm, {
       onCancel() {
-        closePopconfirm();
+        closePopconfirm({ restoreFocus: true });
       },
       onConfirm() {
-        closePopconfirm();
+        closePopconfirm({ restoreFocus: true });
         if (typeof onConfirm === 'function') {
           onConfirm();
         }
@@ -3514,6 +3601,11 @@
       popconfirmController = null;
     };
     setPopconfirmOpen(false);
+    if (trigger.id) {
+      popconfirm.id = `${trigger.id}_popconfirm`;
+      trigger.setAttribute('aria-controls', popconfirm.id);
+    }
+    trigger.setAttribute('aria-haspopup', 'dialog');
 
     trigger.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -3543,8 +3635,10 @@
 
   function removeSiteSearchItem(key, isBuiltin) {
     if (isBuiltin) {
-      disabledSiteSearchKeys.add(key.toLowerCase());
-      return saveDisabledSiteSearchKeys(disabledSiteSearchKeys).then(() => {
+      const nextDisabledKeys = new Set(disabledSiteSearchKeys);
+      nextDisabledKeys.add(key.toLowerCase());
+      return saveDisabledSiteSearchKeys(nextDisabledKeys).then(() => {
+        disabledSiteSearchKeys = nextDisabledKeys;
         refreshSiteSearchProviders();
         if (editingSiteSearchKey === key) {
           resetSiteSearchForm();
@@ -3565,11 +3659,9 @@
     if (builtinKey) {
       nextDisabledKeys.delete(builtinKey);
     }
-    return Promise.all([
-      saveCustomSiteSearchProviders(nextCustom),
-      saveDisabledSiteSearchKeys(nextDisabledKeys)
-    ]).then(() => {
+    return saveSiteSearchProviderState(nextCustom, nextDisabledKeys).then(() => {
       customSiteSearchProviders = nextCustom;
+      customSiteSearchProviderIdsReady = true;
       disabledSiteSearchKeys = nextDisabledKeys;
       refreshSiteSearchProviders();
       if (editingSiteSearchKey === key) {
@@ -3700,6 +3792,7 @@
       setEditingState(editingSiteSearchKey);
       updateBuiltinResetTooltip();
       updateCustomClearTooltip();
+      updateAggregateSearchClearTooltip();
       updateBlacklistClearTooltip();
       refreshSyncStatus();
       refreshShortcutsStatus();
@@ -3725,6 +3818,7 @@
       if (confirmCancel) confirmCancel.textContent = getMessage('confirm_cancel', '取消');
       if (confirmOk) confirmOk.textContent = getMessage('confirm_ok', '确认');
       renderSiteSearchList();
+      renderAggregateSearchList();
       renderSearchBlacklistList();
     });
   }
@@ -4803,6 +4897,7 @@
       ? item.aliases
       : (Array.isArray(baseItem && baseItem.aliases) ? baseItem.aliases : []);
     const provider = {
+      id: String((item && item.id) || (baseItem && baseItem.id) || '').trim(),
       key,
       aliases: aliasSource.filter(Boolean),
       name: String((item && item.name) || (baseItem && baseItem.name) || key).trim() || key,
@@ -6095,6 +6190,20 @@
     closeActivePopconfirm();
   });
 
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !activePopconfirm) {
+      return;
+    }
+    const popconfirm = activePopconfirm;
+    const closePopconfirm = popconfirm._xOptionsClosePopconfirm;
+    if (typeof closePopconfirm !== 'function') {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    closePopconfirm({ restoreFocus: true });
+  });
+
   function resetSiteSearchForm() {
     if (siteSearchKeyInput) siteSearchKeyInput.value = '';
     if (siteSearchNameInput) siteSearchNameInput.value = '';
@@ -6325,6 +6434,7 @@
     }
     const nextItemDraft = {
       ...item,
+      id: String(item.id || '').trim() || createPersistentId('source'),
       key: nextKeyRaw,
       name: String(draft && draft.name ? draft.name : '').trim() || nextKeyRaw,
       template,
@@ -6354,13 +6464,12 @@
       });
     }
     next.unshift(nextItem);
-    return Promise.all([
-      saveCustomSiteSearchProviders(next),
-      saveDisabledSiteSearchKeys(nextDisabledKeys)
-    ]).then(() => {
+    return saveSiteSearchProviderState(next, nextDisabledKeys).then(() => {
       customSiteSearchProviders = next;
+      customSiteSearchProviderIdsReady = true;
       disabledSiteSearchKeys = nextDisabledKeys;
       renderSiteSearchList();
+      renderAggregateSearchList();
       setTimeout(() => {
         showToast(getMessage('toast_saved', '已保存'), false);
       }, 220);
@@ -6519,62 +6628,763 @@
   }
 
   function loadCustomSiteSearchProviders(baseItems) {
-    return new Promise((resolve) => {
-      if (!storageArea) {
-        resolve([]);
-        return;
-      }
-      storageArea.get([SITE_SEARCH_STORAGE_KEY], (result) => {
-        const items = Array.isArray(result[SITE_SEARCH_STORAGE_KEY]) ? result[SITE_SEARCH_STORAGE_KEY] : [];
+    if (typeof SETTINGS.readStorageValue === 'function') {
+      return SETTINGS.readStorageValue(
+        storageArea,
+        chrome,
+        SITE_SEARCH_STORAGE_KEY
+      ).then((value) => {
+        const items = Array.isArray(value) ? value : [];
         const baseMap = new Map((baseItems || []).map((item) => [
           String(item && item.key ? item.key : '').toLowerCase(),
           item
         ]));
-        resolve(items.map((item) => {
+        return items.map((item) => {
           const key = String(item && item.key ? item.key : '').toLowerCase();
           const builtinKey = getSiteSearchBuiltinKey(item);
           return normalizeSiteSearchProvider(item, baseMap.get(builtinKey || key));
-        }).filter(Boolean));
+        }).filter(Boolean);
       });
-    });
+    }
+    return Promise.resolve([]);
   }
 
   function loadDisabledSiteSearchKeys() {
-    return new Promise((resolve) => {
-      if (!storageArea) {
-        resolve([]);
-        return;
-      }
-      storageArea.get([SITE_SEARCH_DISABLED_STORAGE_KEY], (result) => {
-        const items = Array.isArray(result[SITE_SEARCH_DISABLED_STORAGE_KEY])
-          ? result[SITE_SEARCH_DISABLED_STORAGE_KEY]
-          : [];
-        resolve(items.map((item) => String(item).toLowerCase()).filter(Boolean));
-      });
+    if (typeof SETTINGS.readStorageValue !== 'function') {
+      return Promise.resolve([]);
+    }
+    return SETTINGS.readStorageValue(
+      storageArea,
+      chrome,
+      SITE_SEARCH_DISABLED_STORAGE_KEY
+    ).then((value) => {
+      const items = Array.isArray(value) ? value : [];
+      return items.map((item) => String(item).toLowerCase()).filter(Boolean);
     });
   }
 
-  function saveDisabledSiteSearchKeys(keys) {
+  function writeDisabledSiteSearchKeys(keys) {
     const payload = Array.from(keys || [])
       .map((item) => String(item).toLowerCase())
       .filter(Boolean);
-    return new Promise((resolve) => {
+    if (typeof SETTINGS.writeStorageValue === 'function') {
+      return SETTINGS.writeStorageValue(
+        rawStorageArea,
+        chrome,
+        SITE_SEARCH_DISABLED_STORAGE_KEY,
+        payload
+      );
+    }
+    return new Promise((resolve, reject) => {
       if (!storageArea) {
-        resolve();
+        resolve(payload);
         return;
       }
-      storageArea.set({ [SITE_SEARCH_DISABLED_STORAGE_KEY]: payload }, () => resolve());
+      try {
+        const maybePromise = storageArea.set({ [SITE_SEARCH_DISABLED_STORAGE_KEY]: payload }, () => {
+          const runtimeError = chrome && chrome.runtime ? chrome.runtime.lastError : null;
+          if (runtimeError) {
+            reject(new Error(runtimeError.message || 'Failed to save disabled search providers'));
+            return;
+          }
+          resolve(payload);
+        });
+        if (maybePromise && typeof maybePromise.catch === 'function') {
+          maybePromise.catch(reject);
+        }
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
-  function saveCustomSiteSearchProviders(items) {
-    return new Promise((resolve) => {
+  function writeCustomSiteSearchProviders(items) {
+    const payload = (items || []).map((item) => normalizeSiteSearchProvider(item)).filter(Boolean);
+    if (typeof SETTINGS.writeStorageValue === 'function') {
+      return SETTINGS.writeStorageValue(
+        storageArea,
+        chrome,
+        SITE_SEARCH_STORAGE_KEY,
+        payload
+      );
+    }
+    return new Promise((resolve, reject) => {
       if (!storageArea) {
-        resolve();
+        resolve(payload);
         return;
       }
-      const payload = (items || []).map((item) => normalizeSiteSearchProvider(item)).filter(Boolean);
-      storageArea.set({ [SITE_SEARCH_STORAGE_KEY]: payload }, () => resolve());
+      try {
+        const maybePromise = storageArea.set({ [SITE_SEARCH_STORAGE_KEY]: payload }, () => {
+          const runtimeError = chrome && chrome.runtime ? chrome.runtime.lastError : null;
+          if (runtimeError) {
+            reject(new Error(runtimeError.message || 'Failed to save custom search providers'));
+            return;
+          }
+          resolve(payload);
+        });
+        if (maybePromise && typeof maybePromise.catch === 'function') {
+          maybePromise.catch(reject);
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function writeSiteSearchProviderState(items, keys) {
+    const providersPayload = (items || [])
+      .map((item) => normalizeSiteSearchProvider(item))
+      .filter(Boolean);
+    const disabledPayload = Array.from(keys || [])
+      .map((item) => String(item).toLowerCase())
+      .filter(Boolean);
+    const payload = {
+      [SITE_SEARCH_STORAGE_KEY]: providersPayload,
+      [SITE_SEARCH_DISABLED_STORAGE_KEY]: disabledPayload
+    };
+    if (typeof SETTINGS.writeStorageValues === 'function') {
+      return SETTINGS.writeStorageValues(rawStorageArea, chrome, payload);
+    }
+    return new Promise((resolve, reject) => {
+      const targetArea = rawStorageArea || storageArea;
+      if (!targetArea || typeof targetArea.set !== 'function') {
+        resolve(payload);
+        return;
+      }
+      let settled = false;
+      const finish = (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (error) {
+          reject(error instanceof Error ? error : new Error(String(error)));
+          return;
+        }
+        resolve(payload);
+      };
+      const callback = () => {
+        const runtimeError = chrome && chrome.runtime ? chrome.runtime.lastError : null;
+        finish(runtimeError
+          ? new Error(runtimeError.message || 'Failed to save search providers')
+          : null);
+      };
+      try {
+        const maybePromise = targetArea.set(payload, callback);
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise.then(() => Promise.resolve().then(() => finish(null))).catch(finish);
+        }
+      } catch (error) {
+        finish(error);
+      }
+    });
+  }
+
+  function enqueueSiteSearchProviderStorageOperation(operation) {
+    const run = typeof operation === 'function' ? operation : () => undefined;
+    const task = siteSearchProviderStorageOperationQueue.then(run, run);
+    siteSearchProviderStorageOperationQueue = task.catch(() => {});
+    return task;
+  }
+
+  function saveDisabledSiteSearchKeys(keys) {
+    return enqueueSiteSearchProviderStorageOperation(
+      () => writeDisabledSiteSearchKeys(keys)
+    );
+  }
+
+  function saveCustomSiteSearchProviders(items) {
+    return enqueueSiteSearchProviderStorageOperation(
+      () => writeCustomSiteSearchProviders(items)
+    );
+  }
+
+  function saveSiteSearchProviderState(items, keys) {
+    return enqueueSiteSearchProviderStorageOperation(
+      () => writeSiteSearchProviderState(items, keys)
+    );
+  }
+
+  function createSiteSearchProviderRefreshCoordinator(config) {
+    const options = config && typeof config === 'object' ? config : {};
+    const load = typeof options.load === 'function'
+      ? options.load
+      : () => Promise.resolve({});
+    const prepare = typeof options.prepare === 'function'
+      ? options.prepare
+      : (snapshot) => snapshot;
+    const persist = typeof options.persist === 'function'
+      ? options.persist
+      : () => Promise.resolve();
+    const apply = typeof options.apply === 'function'
+      ? options.apply
+      : () => {};
+    const onError = typeof options.onError === 'function'
+      ? options.onError
+      : () => {};
+    let generation = 0;
+    let refreshQueue = Promise.resolve();
+
+    function isCurrent(token) {
+      return token === generation;
+    }
+
+    async function run(token) {
+      try {
+        let snapshot = await load();
+        if (!isCurrent(token)) {
+          return { stale: true };
+        }
+        let prepared = prepare(snapshot);
+        if (prepared && prepared.needsPersistence) {
+          // A refresh can spend time loading the bundled provider catalog. Re-read
+          // sync storage inside the serialized migration path so cleanup never uses
+          // the earlier snapshot merely because it happened to finish last.
+          snapshot = await load();
+          if (!isCurrent(token)) {
+            return { stale: true };
+          }
+          prepared = prepare(snapshot);
+          if (prepared && prepared.needsPersistence) {
+            if (!isCurrent(token)) {
+              return { stale: true };
+            }
+            await persist(prepared, {
+              isCurrent: () => isCurrent(token)
+            });
+            if (!isCurrent(token)) {
+              return { stale: true };
+            }
+            // Publish what storage now contains, rather than assuming the write
+            // result still represents the newest provider state.
+            snapshot = await load();
+            if (!isCurrent(token)) {
+              return { stale: true };
+            }
+            prepared = prepare(snapshot);
+          }
+        }
+        if (!isCurrent(token)) {
+          return { stale: true };
+        }
+        apply(prepared);
+        return { stale: false, value: prepared };
+      } catch (error) {
+        if (isCurrent(token)) {
+          onError(error);
+        }
+        throw error;
+      }
+    }
+
+    return {
+      invalidate() {
+        generation += 1;
+      },
+      refresh() {
+        const token = ++generation;
+        const task = refreshQueue.then(
+          () => run(token),
+          () => run(token)
+        );
+        refreshQueue = task.catch(() => {});
+        return task;
+      }
+    };
+  }
+
+  function createAggregateSearchStateCoordinator(config) {
+    const options = config && typeof config === 'object' ? config : {};
+    const normalize = typeof options.normalize === 'function'
+      ? options.normalize
+      : (items) => Array.isArray(items) ? items : [];
+    const getCurrent = typeof options.getCurrent === 'function'
+      ? options.getCurrent
+      : () => [];
+    let changeGeneration = 0;
+    let loadGeneration = 0;
+    let mutationQueue = Promise.resolve();
+
+    function startLoad() {
+      const token = {
+        changeGeneration,
+        loadGeneration: ++loadGeneration
+      };
+      let result;
+      try {
+        result = typeof options.load === 'function'
+          ? options.load()
+          : Promise.reject(new Error('aggregate-search-runtime-unavailable'));
+      } catch (error) {
+        result = Promise.reject(error);
+      }
+      return {
+        promise: Promise.resolve(result).then(normalize),
+        token
+      };
+    }
+
+    function isLoadCurrent(token) {
+      return Boolean(token) &&
+        token.changeGeneration === changeGeneration &&
+        token.loadGeneration === loadGeneration;
+    }
+
+    function refresh() {
+      const pending = startLoad();
+      return pending.promise.then((items) => {
+        if (!isLoadCurrent(pending.token)) {
+          return getCurrent();
+        }
+        if (typeof options.apply === 'function') {
+          options.apply(items);
+        }
+        return items;
+      }).catch((error) => {
+        if (isLoadCurrent(pending.token) && typeof options.onLoadError === 'function') {
+          options.onLoadError(error);
+        }
+        throw error;
+      });
+    }
+
+    function loadLatestForMutation() {
+      const pending = startLoad();
+      return pending.promise.then((items) => {
+        if (!isLoadCurrent(pending.token)) {
+          return loadLatestForMutation();
+        }
+        return items;
+      });
+    }
+
+    function enqueueMutation(mutate) {
+      const operation = mutationQueue.then(() => loadLatestForMutation()).then((items) => {
+        const result = typeof mutate === 'function' ? mutate(items) : null;
+        if (!result || !Object.prototype.hasOwnProperty.call(result, 'items')) {
+          return result;
+        }
+        const changeGenerationAtWrite = changeGeneration;
+        loadGeneration += 1;
+        return Promise.resolve().then(() => options.save(result.items)).then((savedItems) => {
+          const normalizedItems = normalize(savedItems);
+          loadGeneration += 1;
+          if (changeGenerationAtWrite === changeGeneration && typeof options.apply === 'function') {
+            options.apply(normalizedItems);
+          }
+          return { ...result, items: normalizedItems };
+        });
+      });
+      mutationQueue = operation.then(() => undefined, () => undefined);
+      return operation;
+    }
+
+    function applyStorageChange(value) {
+      changeGeneration += 1;
+      loadGeneration += 1;
+      const items = normalize(value);
+      if (typeof options.apply === 'function') {
+        options.apply(items);
+      }
+      return items;
+    }
+
+    return {
+      applyStorageChange,
+      enqueueMutation,
+      refresh
+    };
+  }
+
+  function normalizeAggregateSearches(value) {
+    return typeof AGGREGATE_SEARCH_STORE.normalizeAggregateSearches === 'function'
+      ? AGGREGATE_SEARCH_STORE.normalizeAggregateSearches(value)
+      : [];
+  }
+
+  function getAggregateSearchProviderSourceRef(provider) {
+    return typeof AGGREGATE_SEARCH_STORE.getProviderSourceRef === 'function'
+      ? AGGREGATE_SEARCH_STORE.getProviderSourceRef(provider)
+      : '';
+  }
+
+  function getAggregateSearchAvailableProviders() {
+    const activeDefaults = defaultSiteSearchProviders.filter((item) => {
+      const key = String(item && item.key ? item.key : '').trim().toLowerCase();
+      return key && !disabledSiteSearchKeys.has(key);
+    });
+    const aggregateCustomProviders = customSiteSearchProviderIdsReady
+      ? customSiteSearchProviders
+      : customSiteSearchProviders.filter((item) => String(item && item.id ? item.id : '').trim());
+    if (typeof SEARCH_UTILS.mergeCustomProviders === 'function') {
+      return SEARCH_UTILS.mergeCustomProviders(activeDefaults, aggregateCustomProviders);
+    }
+    return aggregateCustomProviders
+      .filter((item) => item && !item.disabled)
+      .map((item) => ({ ...item, _xIsCustom: true }))
+      .concat(activeDefaults);
+  }
+
+  function getAggregateSearchProviderGroup(provider) {
+    if (isAiSiteSearchProvider(provider)) {
+      return {
+        group: 'aiSearch',
+        label: getMessage('shortcuts_group_ai', 'AI')
+      };
+    }
+    if (isSearchEngineSiteSearchProvider(provider)) {
+      return {
+        group: 'searchEngine',
+        label: getMessage('search_scope_group_engines', '搜索引擎')
+      };
+    }
+    return {
+      group: 'site',
+      label: getMessage('search_scope_group_sites', '站内搜索')
+    };
+  }
+
+  function getAggregateSearchListCopy() {
+    return {
+      addLabel: getMessage('aggregate_search_add', '添加聚合搜索'),
+      autoGroupDescription: getMessage(
+        'aggregate_search_auto_group_desc',
+        '将此次聚合搜索打开的所有标签页放入同一个组，并以搜索关键词命名。'
+      ),
+      autoGroupLabel: getMessage('aggregate_search_auto_group_label', '自动创建标签页组'),
+      cancelLabel: getMessage('shortcuts_cancel', '取消'),
+      confirmLabel: getMessage('confirm_ok', '确认'),
+      confirmMessage: getMessage('confirm_remove_item', '确认移除该项？'),
+      confirmMessageKey: 'confirm_remove_item',
+      editLabel: getMessage('shortcuts_edit', '编辑'),
+      groupBadge: getMessage('aggregate_search_badge', '聚合'),
+      maxSourcesError: getMessage(
+        'aggregate_search_max_sources_error',
+        '最多可选择 10 个搜索源。'
+      ),
+      minSourcesError: getMessage(
+        'aggregate_search_min_sources_error',
+        '请至少选择 2 个搜索源。'
+      ),
+      nameLabel: getMessage('aggregate_search_name_label', '名称'),
+      namePlaceholder: getMessage('aggregate_search_name_placeholder', '例如：资料调研'),
+      nameRequiredError: getMessage(
+        'aggregate_search_name_required_error',
+        '请填写聚合搜索名称。'
+      ),
+      removeLabel: getMessage('shortcuts_remove', '移除'),
+      saveLabel: getMessage('shortcuts_save', '保存修改'),
+      selectedCountLabel: getMessage('aggregate_search_selected_count', '已选 {count}/{max}'),
+      sourcesLabel: getMessage('aggregate_search_sources_label', '搜索源'),
+      unavailableGroupLabel: getMessage(
+        'aggregate_search_unavailable_group',
+        '不可用的搜索源'
+      ),
+      unavailableSourceLabel: getMessage(
+        'aggregate_search_unavailable_name',
+        '不可用的搜索源（{source}）'
+      )
+    };
+  }
+
+  function getAggregateSearchProviderModels() {
+    const providers = getAggregateSearchAvailableProviders();
+    const availableRefs = new Set();
+    const models = providers.map((provider) => {
+      const sourceRef = getAggregateSearchProviderSourceRef(provider);
+      if (!sourceRef) {
+        return null;
+      }
+      availableRefs.add(sourceRef);
+      const grouping = getAggregateSearchProviderGroup(provider);
+      return {
+        available: true,
+        group: grouping.group,
+        groupLabel: grouping.label,
+        iconUrl: getSiteSearchItemIconUrl(provider),
+        name: getLocalizedBuiltinProviderName(provider),
+        sourceRef
+      };
+    }).filter(Boolean);
+    const unavailableRefs = Array.from(new Set(
+      aggregateSearches.flatMap((item) => Array.isArray(item.sourceRefs) ? item.sourceRefs : [])
+    )).filter((ref) => !availableRefs.has(ref));
+    unavailableRefs.forEach((sourceRef) => {
+      models.push({
+        available: false,
+        group: 'unavailable',
+        groupLabel: getMessage('aggregate_search_unavailable_group', '不可用的搜索源'),
+        name: formatTemplate(
+          getMessage('aggregate_search_unavailable_name', '不可用的搜索源（{source}）'),
+          { source: sourceRef }
+        ),
+        sourceRef
+      });
+    });
+    return models;
+  }
+
+  function getAggregateSearchItemModel(item) {
+    const count = Array.isArray(item && item.sourceRefs) ? item.sourceRefs.length : 0;
+    const providers = getAggregateSearchAvailableProviders();
+    const availability = typeof AGGREGATE_SEARCH_STORE.getAggregateSearchAvailability === 'function'
+      ? AGGREGATE_SEARCH_STORE.getAggregateSearchAvailability(item, providers)
+      : null;
+    if (availability && !availability.available) {
+      return {
+        autoCreateTabGroup: Boolean(item && item.autoCreateTabGroup),
+        id: String(item && item.id ? item.id : ''),
+        name: String(item && item.name ? item.name : ''),
+        sourceRefs: Array.isArray(item && item.sourceRefs) ? item.sourceRefs.slice() : [],
+        sourceSummary: formatTemplate(
+          getMessage(
+            'aggregate_search_source_summary_unavailable',
+            '{count} sources · {unavailable} unavailable · Update required'
+          ),
+          {
+            count,
+            unavailable: Number(availability.unavailableSourceCount) || 0
+          }
+        )
+      };
+    }
+    const summaryKey = item && item.autoCreateTabGroup
+      ? 'aggregate_search_source_summary_grouped'
+      : 'aggregate_search_source_summary_ungrouped';
+    const summaryFallback = item && item.autoCreateTabGroup
+      ? '{count} sources · Tab group on'
+      : '{count} sources · Tab group off';
+    return {
+      autoCreateTabGroup: Boolean(item && item.autoCreateTabGroup),
+      id: String(item && item.id ? item.id : ''),
+      name: String(item && item.name ? item.name : ''),
+      sourceRefs: Array.isArray(item && item.sourceRefs) ? item.sourceRefs.slice() : [],
+      sourceSummary: formatTemplate(getMessage(summaryKey, summaryFallback), { count })
+    };
+  }
+
+  function renderAggregateSearchList() {
+    if (!aggregateSearchListController || typeof aggregateSearchListController.render !== 'function') {
+      return;
+    }
+    aggregateSearchListController.render({
+      copy: getAggregateSearchListCopy(),
+      items: aggregateSearches.map(getAggregateSearchItemModel),
+      maxNameLength: Number(AGGREGATE_SEARCH_STORE.MAX_NAME_LENGTH) || 80,
+      maxSourceCount: Number(AGGREGATE_SEARCH_STORE.MAX_SOURCE_COUNT) || 10,
+      minSourceCount: Number(AGGREGATE_SEARCH_STORE.MIN_SOURCE_COUNT) || 2,
+      providers: getAggregateSearchProviderModels()
+    });
+  }
+
+  function saveAggregateSearches(items) {
+    const serialized = typeof AGGREGATE_SEARCH_STORE.serializeAggregateSearches === 'function'
+      ? AGGREGATE_SEARCH_STORE.serializeAggregateSearches(items)
+      : { version: 1, items: [] };
+    const serializedBytes = typeof AGGREGATE_SEARCH_STORE.getSerializedStorageByteLength === 'function'
+      ? AGGREGATE_SEARCH_STORE.getSerializedStorageByteLength(
+          serialized,
+          AGGREGATE_SEARCH_STORAGE_KEY
+        )
+      : 0;
+    const byteBudget = Number(AGGREGATE_SEARCH_STORE.SYNC_ITEM_BYTE_BUDGET) || 7800;
+    if (serializedBytes > byteBudget) {
+      return Promise.reject(new Error('aggregate-search-sync-item-quota-exceeded'));
+    }
+    if (typeof SETTINGS.writeStorageValue === 'function') {
+      return SETTINGS.writeStorageValue(
+        rawStorageArea,
+        chrome,
+        AGGREGATE_SEARCH_STORAGE_KEY,
+        serialized
+      ).then(() => serialized.items);
+    }
+    return new Promise((resolve, reject) => {
+      if (!rawStorageArea) {
+        resolve(serialized.items);
+        return;
+      }
+      try {
+        const maybePromise = rawStorageArea.set({ [AGGREGATE_SEARCH_STORAGE_KEY]: serialized }, () => {
+          const lastError = chrome && chrome.runtime ? chrome.runtime.lastError : null;
+          if (lastError) {
+            reject(new Error(lastError.message || 'Failed to save aggregate searches'));
+            return;
+          }
+          resolve(serialized.items);
+        });
+        if (maybePromise && typeof maybePromise.catch === 'function') {
+          maybePromise.catch(reject);
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function getAggregateSearchStateCoordinator() {
+    if (!aggregateSearchStateCoordinator) {
+      aggregateSearchStateCoordinator = createAggregateSearchStateCoordinator({
+        apply(items) {
+          aggregateSearches = items;
+          aggregateSearchesReady = true;
+          renderAggregateSearchList();
+        },
+        getCurrent() {
+          return aggregateSearches;
+        },
+        load() {
+          const loader = AGGREGATE_SEARCH_STORE.loadAggregateSearches;
+          if (typeof loader !== 'function') {
+            throw new Error('aggregate-search-runtime-unavailable');
+          }
+          return loader(rawStorageArea, AGGREGATE_SEARCH_STORAGE_KEY, chrome);
+        },
+        normalize: normalizeAggregateSearches,
+        onLoadError() {
+          aggregateSearchesReady = false;
+          showToast(getMessage('toast_error', '操作失败，请重试'), true);
+        },
+        save: saveAggregateSearches
+      });
+    }
+    return aggregateSearchStateCoordinator;
+  }
+
+  function refreshAggregateSearches() {
+    return getAggregateSearchStateCoordinator().refresh();
+  }
+
+  function handleAggregateSearchSave(id, draft) {
+    const maxItems = Number(AGGREGATE_SEARCH_STORE.MAX_AGGREGATE_COUNT) || 8;
+    const maxNameLength = Number(AGGREGATE_SEARCH_STORE.MAX_NAME_LENGTH) || 80;
+    const minSources = Number(AGGREGATE_SEARCH_STORE.MIN_SOURCE_COUNT) || 2;
+    const maxSources = Number(AGGREGATE_SEARCH_STORE.MAX_SOURCE_COUNT) || 10;
+    const currentId = String(id || '').trim();
+    if (!aggregateSearchesReady) {
+      return Promise.resolve({
+        ok: false,
+        error: getMessage(
+          'aggregate_search_storage_unavailable_error',
+          'Aggregate searches could not be loaded. Reload Settings and try again.'
+        )
+      });
+    }
+    const name = String(draft && draft.name ? draft.name : '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, maxNameLength);
+    const sourceRefs = typeof AGGREGATE_SEARCH_STORE.normalizeSourceRefs === 'function'
+      ? AGGREGATE_SEARCH_STORE.normalizeSourceRefs(draft && draft.sourceRefs)
+      : [];
+    if (!name) {
+      return Promise.resolve({
+        ok: false,
+        error: getMessage('aggregate_search_name_required_error', '请填写聚合搜索名称。')
+      });
+    }
+    if (sourceRefs.length < minSources) {
+      return Promise.resolve({
+        ok: false,
+        error: getMessage('aggregate_search_min_sources_error', '请至少选择 2 个搜索源。')
+      });
+    }
+    if (sourceRefs.length > maxSources) {
+      return Promise.resolve({
+        ok: false,
+        error: getMessage('aggregate_search_max_sources_error', '最多可选择 10 个搜索源。')
+      });
+    }
+    const nextItem = {
+      id: currentId || createPersistentId('aggregate'),
+      name,
+      sourceRefs,
+      autoCreateTabGroup: Boolean(draft && draft.autoCreateTabGroup)
+    };
+    if (typeof AGGREGATE_SEARCH_STORE.getAggregateSearchAvailability === 'function') {
+      const availability = AGGREGATE_SEARCH_STORE.getAggregateSearchAvailability(
+        nextItem,
+        getAggregateSearchAvailableProviders()
+      );
+      if (!availability.available) {
+        return Promise.resolve({
+          ok: false,
+          error: getMessage(
+            'aggregate_search_source_selection_unavailable_error',
+            'Remove unavailable sources and select at least two available sources.'
+          )
+        });
+      }
+    }
+    return getAggregateSearchStateCoordinator().enqueueMutation((items) => {
+      if (!currentId && items.length >= maxItems) {
+        return {
+          ok: false,
+          error: getMessage('aggregate_search_max_items_error', '最多可创建 8 个聚合搜索。')
+        };
+      }
+      const duplicate = items.some((item) => (
+        String(item.id || '') !== currentId &&
+        String(item.name || '').trim().toLocaleLowerCase() === name.toLocaleLowerCase()
+      ));
+      if (duplicate) {
+        return {
+          ok: false,
+          error: getMessage('aggregate_search_name_duplicate_error', '已存在同名的聚合搜索。')
+        };
+      }
+      const next = currentId
+        ? items.map((item) => String(item.id || '') === currentId ? nextItem : item)
+        : items.concat(nextItem);
+      return { items: next, ok: true };
+    }).then((result) => {
+      if (!result || !result.ok) {
+        return result;
+      }
+      showToast(getMessage('toast_saved', '已保存'), false);
+      return { ok: true };
+    }).catch(() => {
+      const error = getMessage('toast_error', '操作失败，请重试');
+      showToast(error, true);
+      return { ok: false, error };
+    });
+  }
+
+  function handleAggregateSearchRemove(id) {
+    if (!aggregateSearchesReady) {
+      const error = getMessage(
+        'aggregate_search_storage_unavailable_error',
+        'Aggregate searches could not be loaded. Reload Settings and try again.'
+      );
+      showToast(error, true);
+      return Promise.resolve();
+    }
+    return getAggregateSearchStateCoordinator().enqueueMutation((items) => ({
+      items: items.filter((item) => String(item.id || '') !== String(id || '')),
+      ok: true
+    })).then(() => {
+      showToast(getMessage('toast_removed', '已移除'), false);
+    }).catch(() => {
+      showToast(getMessage('toast_error', '操作失败，请重试'), true);
+    });
+  }
+
+  function handleAggregateSearchClear() {
+    if (!aggregateSearchesReady) {
+      const error = getMessage(
+        'aggregate_search_storage_unavailable_error',
+        'Aggregate searches could not be loaded. Reload Settings and try again.'
+      );
+      showToast(error, true);
+      return Promise.resolve();
+    }
+    return getAggregateSearchStateCoordinator().enqueueMutation(() => ({
+      items: [],
+      ok: true
+    })).then(() => {
+      showToast(getMessage('toast_cleared', '已清空'), false);
+    }).catch(() => {
+      showToast(getMessage('toast_error', '操作失败，请重试'), true);
     });
   }
 
@@ -6768,62 +7578,142 @@
     );
   }
 
+  function prepareSiteSearchProviderSnapshot(snapshot) {
+    const values = snapshot && typeof snapshot === 'object' ? snapshot : {};
+    const defaults = Array.isArray(values.defaults) ? values.defaults : [];
+    const custom = Array.isArray(values.custom) ? values.custom : [];
+    let disabledKeys = new Set(Array.isArray(values.disabled) ? values.disabled : []);
+    const filteredCustom = filterRedundantCustomProviders(defaults, custom);
+    const withoutDebug = filteredCustom.filter(
+      (item) => String(item.key || '').toLowerCase() !== DEBUG_DUPLICATE_CUSTOM_KEY
+    );
+    const stableCustom = ensureCustomSiteSearchProviderIds(withoutDebug);
+    const customWithStableIds = stableCustom.items;
+    const didFilter = filteredCustom.length !== custom.length;
+    const didRemoveDebug = withoutDebug.length !== filteredCustom.length;
+    const activeBuiltins = getActiveBuiltinSiteSearchProviders(
+      defaults,
+      customWithStableIds,
+      disabledKeys
+    );
+    const nextCustom = customWithStableIds.map((item) => {
+      const shouldDisable = !getSiteSearchBuiltinKey(item) &&
+        isDuplicateTemplate(item.template, activeBuiltins);
+      return {
+        ...item,
+        disabled: shouldDisable,
+        disabledReason: shouldDisable ? 'duplicate' : ''
+      };
+    });
+    const didUpdateDisabled = nextCustom.some((item, index) => {
+      const before = customWithStableIds[index] || {};
+      return Boolean(before.disabled) !== Boolean(item.disabled) ||
+        String(before.disabledReason || '') !== String(item.disabledReason || '');
+    });
+    const filteredBase = defaults.filter((item) => {
+      const key = String(item && item.key ? item.key : '').toLowerCase();
+      return key && !disabledKeys.has(key);
+    });
+    const didResetDisabled = filteredBase.length === 0 &&
+      nextCustom.length === 0 &&
+      defaults.length > 0 &&
+      disabledKeys.size > 0;
+    if (didResetDisabled) {
+      disabledKeys = new Set();
+    }
+    return {
+      custom: nextCustom,
+      defaults,
+      disabledKeys,
+      needsPersistence: didFilter || didUpdateDisabled || didRemoveDebug ||
+        stableCustom.changed || didResetDisabled
+    };
+  }
+
+  function getSiteSearchProviderRefreshCoordinator() {
+    if (!siteSearchProviderRefreshCoordinator) {
+      siteSearchProviderRefreshCoordinator = createSiteSearchProviderRefreshCoordinator({
+        apply(prepared) {
+          defaultSiteSearchProviders = prepared.defaults;
+          customSiteSearchProviders = prepared.custom;
+          customSiteSearchProviderIdsReady = true;
+          disabledSiteSearchKeys = prepared.disabledKeys;
+          renderSiteSearchList();
+          renderAggregateSearchList();
+        },
+        async load() {
+          const defaults = await loadDefaultSiteSearchProviders();
+          const [custom, disabled] = await Promise.all([
+            loadCustomSiteSearchProviders(defaults),
+            loadDisabledSiteSearchKeys()
+          ]);
+          return { custom, defaults, disabled };
+        },
+        onError() {
+          customSiteSearchProviderIdsReady = false;
+          renderAggregateSearchList();
+          showToast(getMessage('toast_error', '操作失败，请重试'), true);
+        },
+        persist(_prepared, context) {
+          const isCurrent = context && typeof context.isCurrent === 'function'
+            ? context.isCurrent
+            : () => true;
+          return enqueueSiteSearchProviderStorageOperation(async () => {
+            if (!isCurrent()) {
+              return;
+            }
+            const defaults = await loadDefaultSiteSearchProviders();
+            const [custom, disabled] = await Promise.all([
+              loadCustomSiteSearchProviders(defaults),
+              loadDisabledSiteSearchKeys()
+            ]);
+            if (!isCurrent()) {
+              return;
+            }
+            const latestPrepared = prepareSiteSearchProviderSnapshot({
+              custom,
+              defaults,
+              disabled
+            });
+            if (!latestPrepared.needsPersistence || !isCurrent()) {
+              return;
+            }
+            return writeSiteSearchProviderState(
+              latestPrepared.custom,
+              latestPrepared.disabledKeys
+            );
+          });
+        },
+        prepare: prepareSiteSearchProviderSnapshot
+      });
+    }
+    return siteSearchProviderRefreshCoordinator;
+  }
+
+  function invalidateSiteSearchProviderRefresh() {
+    if (siteSearchProviderRefreshCoordinator) {
+      siteSearchProviderRefreshCoordinator.invalidate();
+    }
+  }
+
   function refreshSiteSearchProviders() {
     if (!siteSearchEngineBuiltinList || !siteSearchCustomList || !siteSearchBuiltinList) {
-      return;
+      return Promise.resolve();
     }
     if (defaultSiteSearchProviders.length === 0) {
       defaultSiteSearchProviders = fallbackSiteSearchProviders.slice();
       renderSiteSearchList();
     }
-    loadDefaultSiteSearchProviders().then((defaults) => Promise.all([
-      Promise.resolve(defaults),
-      loadCustomSiteSearchProviders(defaults),
-      loadDisabledSiteSearchKeys()
-    ])).then(([defaults, custom, disabled]) => {
-      defaultSiteSearchProviders = defaults;
-      disabledSiteSearchKeys = new Set(disabled || []);
-      const filteredCustom = filterRedundantCustomProviders(defaults, custom);
-      const withoutDebug = filteredCustom.filter((item) => String(item.key || '').toLowerCase() !== DEBUG_DUPLICATE_CUSTOM_KEY);
-      const didFilter = filteredCustom.length !== (custom || []).length;
-      const didRemoveDebug = withoutDebug.length !== filteredCustom.length;
-      const activeBuiltins = getActiveBuiltinSiteSearchProviders(
-        defaults,
-        withoutDebug,
-        disabledSiteSearchKeys
-      );
-      let nextCustom = withoutDebug.map((item) => {
-        const shouldDisable = !getSiteSearchBuiltinKey(item) &&
-          isDuplicateTemplate(item.template, activeBuiltins);
-        return {
-          ...item,
-          disabled: shouldDisable,
-          disabledReason: shouldDisable ? 'duplicate' : ''
-        };
-      });
-      const didUpdateDisabled = nextCustom.some((item, index) => {
-        const before = withoutDebug[index] || {};
-        return Boolean(before.disabled) !== Boolean(item.disabled) ||
-          String(before.disabledReason || '') !== String(item.disabledReason || '');
-      });
-      customSiteSearchProviders = nextCustom;
-      if (didFilter || didUpdateDisabled || didRemoveDebug) {
-        saveCustomSiteSearchProviders(nextCustom);
-      }
-      const filteredBase = defaultSiteSearchProviders.filter((item) => {
-        const key = String(item && item.key ? item.key : '').toLowerCase();
-        return key && !disabledSiteSearchKeys.has(key);
-      });
-      if (filteredBase.length === 0 && customSiteSearchProviders.length === 0 && defaultSiteSearchProviders.length > 0) {
-        disabledSiteSearchKeys = new Set();
-        saveDisabledSiteSearchKeys(disabledSiteSearchKeys);
-      }
-      renderSiteSearchList();
-    });
+    customSiteSearchProviderIdsReady = false;
+    renderAggregateSearchList();
+    return getSiteSearchProviderRefreshCoordinator().refresh().catch(() => {});
   }
 
   if (siteSearchEngineBuiltinList && siteSearchCustomList && siteSearchBuiltinList) {
     refreshSiteSearchProviders();
+  }
+  if (aggregateSearchList) {
+    refreshAggregateSearches().catch(() => {});
   }
   if (blacklistList) {
     loadSearchBlacklistItems().then((items) => {
@@ -6947,6 +7837,7 @@
       }
       const nextItem = normalizeSiteSearchProvider({
         ...(editingItem || {}),
+        id: String(editingItem && editingItem.id ? editingItem.id : '').trim() || createPersistentId('source'),
         key: key,
         name: name || key,
         template: template,
@@ -6966,11 +7857,9 @@
       } else {
         nextDisabledKeys.delete(lowerKey);
       }
-      Promise.all([
-        saveCustomSiteSearchProviders(next),
-        saveDisabledSiteSearchKeys(nextDisabledKeys)
-      ]).then(() => {
+      saveSiteSearchProviderState(next, nextDisabledKeys).then(() => {
         customSiteSearchProviders = next;
+        customSiteSearchProviderIdsReady = true;
         disabledSiteSearchKeys = nextDisabledKeys;
         renderSiteSearchList();
         refreshSiteSearchProviders();
@@ -6978,6 +7867,9 @@
         setTimeout(() => {
           showToast(getMessage('toast_saved', '已保存'), false);
         }, 220);
+      }).catch(() => {
+        setSiteSearchError(getMessage('toast_error', '操作失败，请重试'));
+        showToast(getMessage('toast_error', '操作失败，请重试'), true);
       });
     });
   }
@@ -6998,13 +7890,12 @@
             const builtinKey = getSiteSearchBuiltinKey(item);
             return key && !defaultKeys.has(key) && !defaultKeys.has(builtinKey);
           });
-          Promise.all([
-            saveCustomSiteSearchProviders(filteredCustom),
-            saveDisabledSiteSearchKeys(new Set())
-          ]).then(() => {
+          saveSiteSearchProviderState(filteredCustom, new Set()).then(() => {
             customSiteSearchProviders = filteredCustom;
+            customSiteSearchProviderIdsReady = true;
             disabledSiteSearchKeys = new Set();
             renderSiteSearchList();
+            renderAggregateSearchList();
           }).catch(() => {
             showToast(getMessage('toast_error', '操作失败，请重试'), true);
           });
@@ -7028,18 +7919,26 @@
             nextDisabledKeys.delete(builtinKey);
           }
         });
-        Promise.all([
-          saveCustomSiteSearchProviders([]),
-          saveDisabledSiteSearchKeys(nextDisabledKeys)
-        ]).then(() => {
+        saveSiteSearchProviderState([], nextDisabledKeys).then(() => {
           customSiteSearchProviders = [];
+          customSiteSearchProviderIdsReady = true;
           disabledSiteSearchKeys = nextDisabledKeys;
           renderSiteSearchList();
+          renderAggregateSearchList();
           showToast(getMessage('toast_cleared', '已清空'), false);
         }).catch(() => {
           showToast(getMessage('toast_error', '操作失败，请重试'), true);
         });
       }
+    );
+  }
+
+  if (aggregateSearchClearButton) {
+    attachPopconfirm(
+      aggregateSearchClearButton,
+      'confirm_clear_aggregate_search',
+      '确认清空聚合搜索？',
+      handleAggregateSearchClear
     );
   }
 
@@ -7457,9 +8356,15 @@
       );
       renderFaviconRequestBlacklistList();
     }
+    if (changes[AGGREGATE_SEARCH_STORAGE_KEY]) {
+      getAggregateSearchStateCoordinator().applyStorageChange(
+        changes[AGGREGATE_SEARCH_STORAGE_KEY].newValue
+      );
+    }
     if (!changes[SITE_SEARCH_STORAGE_KEY] && !changes[SITE_SEARCH_DISABLED_STORAGE_KEY]) {
       return;
     }
+    invalidateSiteSearchProviderRefresh();
     const now = Date.now();
     if (siteSearchRefreshSuppressUntil && now < siteSearchRefreshSuppressUntil) {
       if (siteSearchRefreshTimer) {

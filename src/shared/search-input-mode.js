@@ -2127,14 +2127,23 @@
 
     function setProviderPrefix(provider, theme, providerOptions) {
       const isAi = isAiSiteSearchProvider(provider);
+      const isAggregate = Boolean(
+        provider && (
+          provider._xIsAggregateSearch === true ||
+          String(provider.action || '') === 'aggregateSearch' ||
+          String(provider.category || '') === 'aggregateSearch'
+        )
+      );
       const nextOptions = {
         ...(providerOptions || {}),
-        iconUrl: getProviderIcon(provider),
-        iconHost: getProviderThemeHost(provider),
-        iconClass: isAi ? 'ri-search-ai-line' : 'ri-global-line',
-        modeId: `provider:${provider && (provider.key || provider.name) ? (provider.key || provider.name) : ''}`,
+        iconUrl: isAggregate ? '' : getProviderIcon(provider),
+        iconHost: isAggregate ? '' : getProviderThemeHost(provider),
+        iconClass: isAggregate ? 'ri-stack-line' : (isAi ? 'ri-search-ai-line' : 'ri-global-line'),
+        modeId: isAggregate
+          ? `aggregate:${String(provider && provider.aggregateId ? provider.aggregateId : '')}`
+          : `provider:${provider && (provider.key || provider.name) ? (provider.key || provider.name) : ''}`,
         provider,
-        isAi
+        isAi: isAi && !isAggregate
       };
       setPrefixText(getSiteSearchPrefixText(provider), theme, nextOptions);
     }

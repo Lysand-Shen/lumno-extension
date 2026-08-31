@@ -2,6 +2,7 @@ Tags: Release
 
 ## Features
 
+- 新增聚合搜索，可组合 2–10 个内置或自定义搜索源，一次打开多个搜索结果，并可按关键词自动创建标签页组。
 - 搜索浮层、新标签页、设置页和引导页完成 React 迁移，并移除旧 UI 渲染回退路径。
 - 搜索范围菜单支持范围过滤、双 Tab 确认、退格返回和站内搜索图标展示；同时改善键盘、输入法和 Slash Command 交互。
 - 新标签页新增四套壁纸：印象派果园、点彩湖畔、3D 天文台和山水竹桥。
@@ -12,6 +13,7 @@ Tags: Release
 
 ## Bug Fixes
 
+- 聚合搜索在来源被删除或停用时不再静默降级，并加强旧自定义来源 ID 迁移、重复提交和执行失败的处理。
 - 修复页面级 favicon 被旧主机缓存覆盖的问题，并改进缓存并发写入、策略变更失效和快捷方式图标清理。
 - 修复站内搜索 PNG 图标未被打包或未被声明为 web-accessible resource 的问题。
 - 改进搜索范围前缀的切换动画、尺寸过渡和文字对比度，提升浅色与深色主题下的可读性。
@@ -23,6 +25,7 @@ Tags: Release
 
 ## Features
 
+- Added aggregate search for combining 2–10 built-in or custom sources, opening all results at once, and optionally grouping tabs under the query name.
 - Completed the React migration for the Command Bar, New Tab, Settings, and Onboarding pages, and removed the legacy UI renderer fallbacks.
 - Search scope menus now support scope filtering, double-Tab confirmation, Backspace navigation, and site-search icons, with improved keyboard, IME, and Slash Command interactions.
 - Added four New Tab wallpapers: Impressionist Orchard, Pointillist Lakeside, 3D Observatory, and Shanshui Bamboo Bridge.
@@ -33,6 +36,7 @@ Tags: Release
 
 ## Bug Fixes
 
+- Aggregate searches no longer silently degrade when a referenced source is removed or disabled, with safer legacy source-ID migration, duplicate-submit handling, and execution error reporting.
 - Fixed page-specific favicons being overridden by stale host-level caches, and improved concurrent cache writes, policy invalidation, and shortcut-icon cleanup.
 - Fixed bundled site-search PNG icons not being packaged or declared as web-accessible resources.
 - Improved scope-prefix transitions, size changes, and text contrast for better readability in light and dark themes.

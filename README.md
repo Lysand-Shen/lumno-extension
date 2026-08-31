@@ -43,6 +43,7 @@ Lumno is a Manifest V3 extension for Chromium browsers. It combines a focused br
 - Focused command bar: open an overlay on injectable pages to visit URLs, search keywords, switch open tabs, open browser internal pages, and jump into Lumno settings.
 - Smart search results: combines bookmarks, history, top sites, browser suggestions, and open tabs, with source filters, first-result priority, selection-based ranking, pinyin matching, and blacklist filtering.
 - Site search and AI search: ships with shortcuts for YouTube, Bilibili, GitHub, Google, Bing, Baidu, Zhihu, Douban, Juejin, Taobao, X, Reddit, Wikipedia, and more. AI entries include ChatGPT, Gemini, Doubao, Qianwen, Yuanbao, MiniMax, DeepSeek, and Kimi. Custom templates and aliases are supported.
+- Aggregate search: combine 2–10 built-in or custom search sources into one scope, run the same query across multiple tabs, and optionally place the results in a tab group named after the query.
 - New tab page: includes a search box, recent/most-visited site cards, bookmark grids and cascading folder menus, bookmark paging, pinned/hidden recent sites, feedback links, and adjustable content width.
 - Appearance and wallpapers: supports system/light/dark themes, global or new-tab-only theme scope, built-in wallpapers, local wallpaper import, overlay opacity, grain/halftone/dither/ASCII filters, search-box width, and Lumno wordmark visibility.
 - Web Clip PiP: on supported HTTPS top-level pages, select part of a page and float it in a Document Picture-in-Picture window for reference and comparison.
