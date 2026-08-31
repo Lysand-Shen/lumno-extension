@@ -6572,6 +6572,16 @@ function runAggregateSearchQuery(aggregateId, query, sender, disposition) {
       storageArea,
       storageKey: AGGREGATE_SEARCH_STORAGE_KEY,
       loadSiteSearchProviders,
+      loadAggregateSearchAutoGroupEnabled() {
+        if (typeof SETTINGS.readStorageValue !== 'function') {
+          return Promise.resolve(undefined);
+        }
+        return SETTINGS.readStorageValue(
+          storageArea,
+          chrome,
+          AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY
+        );
+      },
       openAggregateSearch: AGGREGATE_SEARCH.openAggregateSearch,
       getEntryUrl: getSiteSearchProviderEntryUrl,
       isInteractiveProvider: isInteractiveSiteSearchProvider,
@@ -7527,6 +7537,9 @@ const AGGREGATE_SEARCH_STORE = globalThis.LumnoAggregateSearchStore || {};
 const AGGREGATE_SEARCH = globalThis.LumnoBackgroundAggregateSearch || {};
 const AGGREGATE_SEARCH_STORAGE_KEY = AGGREGATE_SEARCH_STORE.STORAGE_KEY ||
   '_x_extension_aggregate_searches_2026_unique_';
+const AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY =
+  SETTINGS.AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY ||
+  '_x_extension_aggregate_search_auto_group_enabled_2026_unique_';
 const SEARCH_BLACKLIST_STORAGE_KEY = '_x_extension_search_blacklist_2026_unique_';
 const FAVICON_REQUEST_BLACKLIST_STORAGE_KEY = '_x_extension_favicon_request_blacklist_2026_unique_';
 const FAVICON_ENHANCED_FETCH_ENABLED_STORAGE_KEY = '_x_extension_favicon_enhanced_fetch_enabled_2026_unique_';

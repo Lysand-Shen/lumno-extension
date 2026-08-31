@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createAggregateSearchListApi,
   createAggregateSearchListController,
+  getNextAggregateSearchDefaultName,
   type AggregateSearchListController,
   type AggregateSearchListRenderModel
 } from './aggregate-search-list';
@@ -12,18 +13,16 @@ let controllers: AggregateSearchListController[] = [];
 const model: AggregateSearchListRenderModel = {
   copy: {
     addLabel: '添加聚合搜索',
-    autoGroupDescription: '使用关键词作为组名',
-    autoGroupLabel: '自动创建标签页组',
     cancelLabel: '取消',
     confirmLabel: '确认',
     confirmMessage: '确认移除？',
     confirmMessageKey: 'confirm_remove_item',
+    defaultNameBase: '聚合搜索',
     editLabel: '编辑',
     groupBadge: '聚合',
     maxSourcesError: '最多 10 个',
     minSourcesError: '至少 2 个',
     nameLabel: '名称',
-    namePlaceholder: '例如：技术检索',
     nameRequiredError: '请输入名称',
     removeLabel: '移除',
     saveLabel: '保存',
@@ -127,7 +126,7 @@ afterEach(() => {
 });
 
 describe('Options aggregate-search React island', () => {
-  it('creates an aggregate with at least two sources and the group preference', async () => {
+  it('prefills and saves the first default name without a placeholder', async () => {
     const { host, options } = createFixture();
 
     expect(createAggregateSearchListApi().implementation).toBe('react');
@@ -155,31 +154,52 @@ describe('Options aggregate-search React island', () => {
     )).toBe(addForm?.querySelector(
       '._x_extension_shortcut_form_fields_2024_unique_'
     ));
-    expect(host.querySelector<HTMLInputElement>('[data-aggregate-field="name"]')
-      ?.maxLength).toBe(80);
+    const nameInput = host.querySelector<HTMLInputElement>(
+      '[data-aggregate-field="name"]'
+    );
+    expect(nameInput?.maxLength).toBe(80);
+    expect(nameInput?.value).toBe('聚合搜索');
+    expect(nameInput?.hasAttribute('placeholder')).toBe(false);
     expect(addForm?.querySelector<HTMLButtonElement>(
       '._x_extension_shortcut_save_2024_unique_'
     )?.textContent).toBe(model.copy.addLabel);
     act(() => {
-      setInputValue(
-        host.querySelector<HTMLInputElement>('[data-aggregate-field="name"]'),
-        ' 技术检索 '
-      );
       host.querySelector<HTMLInputElement>('[data-source-ref="builtin:gg"]')
         ?.click();
       host.querySelector<HTMLInputElement>('[data-source-ref="builtin:gh"]')
         ?.click();
-      host.querySelector<HTMLInputElement>(
-        '._x_extension_switch_2024_unique_ input'
-      )?.click();
     });
     await clickSave(host);
 
     expect(options.onSave).toHaveBeenCalledWith(null, {
-      autoCreateTabGroup: true,
-      name: '技术检索',
+      name: '聚合搜索',
       sourceRefs: ['builtin:gg', 'builtin:gh']
     });
+  });
+
+  it('numbers later defaults from the item count and skips occupied candidates', () => {
+    const firstItem = {
+      id: 'aggregate:first',
+      name: '聚合搜索',
+      sourceRefs: ['builtin:gg', 'builtin:gh'],
+      sourceSummary: '2 个搜索源'
+    };
+    const secondItem = {
+      ...firstItem,
+      id: 'aggregate:second',
+      name: '聚合搜索 2'
+    };
+
+    expect(getNextAggregateSearchDefaultName([firstItem], '聚合搜索'))
+      .toBe('聚合搜索 2');
+    expect(getNextAggregateSearchDefaultName(
+      [firstItem, secondItem],
+      '聚合搜索'
+    )).toBe('聚合搜索 3');
+    expect(getNextAggregateSearchDefaultName([
+      { ...firstItem, name: '自定义名称' },
+      { ...secondItem, name: '聚合搜索 3' }
+    ], '聚合搜索')).toBe('聚合搜索 4');
   });
 
   it('shows required-name and minimum-source validation before saving', async () => {
@@ -188,6 +208,12 @@ describe('Options aggregate-search React island', () => {
       host.querySelector<HTMLButtonElement>(
         '._x_extension_aggregate_search_add_2026_unique_'
       )?.click();
+    });
+    act(() => {
+      setInputValue(
+        host.querySelector<HTMLInputElement>('[data-aggregate-field="name"]'),
+        ''
+      );
     });
 
     await clickSave(host);
@@ -306,7 +332,6 @@ describe('Options aggregate-search React island', () => {
 
   it('keeps a selected source visible and removable if it disappears while editing', async () => {
     const unavailableItem = {
-      autoCreateTabGroup: false,
       id: 'aggregate:needs-repair',
       name: '待修复聚合',
       sourceRefs: ['builtin:gg', 'custom:docs'],
@@ -348,7 +373,6 @@ describe('Options aggregate-search React island', () => {
     await clickSave(host);
 
     expect(options.onSave).toHaveBeenCalledWith(unavailableItem.id, {
-      autoCreateTabGroup: false,
       name: unavailableItem.name,
       sourceRefs: ['builtin:gg', 'builtin:gh']
     });
@@ -356,7 +380,6 @@ describe('Options aggregate-search React island', () => {
 
   it('restores focus after cancelling or successfully saving an unmounted editor', async () => {
     const item = {
-      autoCreateTabGroup: false,
       id: 'aggregate:focus',
       name: '焦点测试',
       sourceRefs: ['builtin:gg', 'builtin:gh'],
@@ -411,14 +434,12 @@ describe('Options aggregate-search React island', () => {
   it('focuses the adjacent edit action, then Add, after confirmed removals unmount items', async () => {
     const items = [
       {
-        autoCreateTabGroup: false,
         id: 'aggregate:first',
         name: '第一个',
         sourceRefs: ['builtin:gg', 'builtin:gh'],
         sourceSummary: '2 个搜索源'
       },
       {
-        autoCreateTabGroup: false,
         id: 'aggregate:second',
         name: '第二个',
         sourceRefs: ['builtin:gg', 'builtin:gh'],
@@ -467,9 +488,8 @@ describe('Options aggregate-search React island', () => {
     ));
   });
 
-  it('edits, toggles, and removes an existing aggregate', async () => {
+  it('edits and removes an existing aggregate', async () => {
     const item = {
-      autoCreateTabGroup: false,
       id: 'aggregate:tech',
       name: '技术检索',
       sourceRefs: ['builtin:gg', 'builtin:gh'],
@@ -502,14 +522,10 @@ describe('Options aggregate-search React island', () => {
         ?.click();
       host.querySelector<HTMLInputElement>('[data-source-ref="custom:docs"]')
         ?.click();
-      host.querySelector<HTMLInputElement>(
-        '._x_extension_switch_2024_unique_ input'
-      )?.click();
     });
     await clickSave(host);
 
     expect(options.onSave).toHaveBeenCalledWith(item.id, {
-      autoCreateTabGroup: true,
       name: '开发检索',
       sourceRefs: ['builtin:gg', 'custom:docs']
     });

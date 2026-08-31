@@ -1729,8 +1729,8 @@
   "aggregate_search_name_required_error": {
     "message": "請填寫彙整搜尋名稱。"
   },
-  "aggregate_search_name_placeholder": {
-    "message": "例如：資料研究"
+  "aggregate_search_default_name": {
+    "message": "彙整搜尋"
   },
   "aggregate_search_sources_label": {
     "message": "搜尋來源"
@@ -1744,20 +1744,17 @@
   "aggregate_search_max_sources_error": {
     "message": "最多可選擇 10 個搜尋來源。"
   },
-  "aggregate_search_auto_group_label": {
-    "message": "自動建立分頁群組"
+  "settings_aggregate_search_auto_group_title": {
+    "message": "彙整搜尋自動建立分頁群組"
   },
-  "aggregate_search_auto_group_desc": {
-    "message": "將這次彙整搜尋開啟的所有分頁放入同一個群組，並以搜尋關鍵字命名。"
+  "settings_aggregate_search_auto_group_desc": {
+    "message": "開啟後，彙整搜尋所開啟的所有分頁會歸入同一群組，並以搜尋關鍵字命名"
   },
   "aggregate_search_badge": {
     "message": "彙整"
   },
-  "aggregate_search_source_summary_grouped": {
-    "message": "{count} 個搜尋來源 · 自動建立群組"
-  },
-  "aggregate_search_source_summary_ungrouped": {
-    "message": "{count} 個搜尋來源 · 不自動建立群組"
+  "aggregate_search_source_summary": {
+    "message": "{count} 個搜尋來源"
   },
   "aggregate_search_source_summary_unavailable": {
     "message": "{count} 個搜尋來源 · {unavailable} 個無法使用 · 需要更新"

@@ -21,6 +21,7 @@ assert.doesNotMatch(
 assert.ok(
   backgroundSource.includes('AGGREGATE_SEARCH.createAggregateSearchQueryRunner({') &&
     backgroundSource.includes('loadSiteSearchProviders,') &&
+    backgroundSource.includes('loadAggregateSearchAutoGroupEnabled()') &&
     backgroundSource.includes('aggregateSearchStore: AGGREGATE_SEARCH_STORE'),
   'the background must use the behavior-tested stored-definition request runner'
 );
@@ -599,6 +600,9 @@ async function run() {
       providerLoadCount += 1;
       return Promise.resolve(storedProviders);
     },
+    loadAggregateSearchAutoGroupEnabled() {
+      return Promise.resolve(false);
+    },
     openAggregateSearch(_chromeApi, options) {
       runnerOpenCalls.push(options);
       return Promise.resolve({ ok: true, openedCount: options.providers.length });
@@ -623,7 +627,11 @@ async function run() {
   assert.strictEqual(providerLoadCount, 1);
   assert.strictEqual(runnerOpenCalls.length, 1);
   assert.deepStrictEqual(runnerOpenCalls[0].providers, storedProviders);
-  assert.strictEqual(runnerOpenCalls[0].autoCreateTabGroup, true);
+  assert.strictEqual(
+    runnerOpenCalls[0].autoCreateTabGroup,
+    false,
+    'the global setting must override a legacy per-item true value'
+  );
   assert.strictEqual(runnerOpenCalls[0].windowId, 7);
   await runner('research', 'stored trust boundary', sender, 'currentTab');
   assert.strictEqual(runnerOpenCalls.length, 1, 'recent identical requests stay deduplicated');
@@ -685,6 +693,7 @@ async function run() {
     },
     chromeApi: success.api,
     loadSiteSearchProviders: () => Promise.resolve([providers[0]]),
+    loadAggregateSearchAutoGroupEnabled: () => Promise.resolve(true),
     openAggregateSearch(_chromeApi, options) {
       delegatedAvailabilityOpenCalls.push(options);
       return Promise.resolve({ ok: true });
@@ -700,6 +709,51 @@ async function run() {
   assert.strictEqual(delegatedAvailabilityChecks, 1);
   assert.strictEqual(delegatedAvailabilityOpenCalls.length, 1,
     'the runner must use the store availability result as its only validity rule');
+  assert.strictEqual(
+    delegatedAvailabilityOpenCalls[0].autoCreateTabGroup,
+    true,
+    'the global setting must override a legacy per-item false value'
+  );
+
+  const fallbackGroupCalls = [];
+  const fallbackGroupRunner = aggregateSearch.createAggregateSearchQueryRunner({
+    aggregateSearchStore: {
+      loadAggregateSearches() {
+        return Promise.resolve([{ id: 'legacy-group', name: 'Legacy group' }]);
+      },
+      getAggregateSearchAvailability(definition, availableProviders) {
+        return {
+          available: true,
+          definition: { ...definition, autoCreateTabGroup: true },
+          providers: availableProviders,
+          requiredSourceCount: availableProviders.length,
+          availableSourceCount: availableProviders.length,
+          unavailableSourceCount: 0
+        };
+      }
+    },
+    chromeApi: success.api,
+    loadSiteSearchProviders: () => Promise.resolve([providers[0]]),
+    loadAggregateSearchAutoGroupEnabled: () => Promise.reject(
+      new Error('temporary setting failure')
+    ),
+    openAggregateSearch(_chromeApi, options) {
+      fallbackGroupCalls.push(options);
+      return Promise.resolve({ ok: true });
+    }
+  });
+  const fallbackGroupResult = await fallbackGroupRunner(
+    'legacy-group',
+    'fallback to legacy setting',
+    sender,
+    'currentTab'
+  );
+  assert.strictEqual(fallbackGroupResult.ok, true);
+  assert.strictEqual(
+    fallbackGroupCalls[0].autoCreateTabGroup,
+    true,
+    'a failed global-setting read must not block search and should use the legacy value'
+  );
 
   let storageLoadAttempts = 0;
   const storageRetryRunner = aggregateSearch.createAggregateSearchQueryRunner({

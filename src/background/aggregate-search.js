@@ -381,6 +381,8 @@
     const config = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
     const store = config.aggregateSearchStore || {};
     const loadSiteSearchProviders = config.loadSiteSearchProviders;
+    const loadAggregateSearchAutoGroupEnabled =
+      config.loadAggregateSearchAutoGroupEnabled;
     const openSearch = typeof config.openAggregateSearch === 'function'
       ? config.openAggregateSearch
       : openAggregateSearch;
@@ -425,10 +427,19 @@
         return existing.promise;
       }
 
+      const autoGroupSettingTask = typeof loadAggregateSearchAutoGroupEnabled === 'function'
+        ? Promise.resolve()
+          .then(() => loadAggregateSearchAutoGroupEnabled())
+          .then(
+            (value) => typeof value === 'boolean' ? value : undefined,
+            () => undefined
+          )
+        : Promise.resolve(undefined);
       const task = Promise.all([
         store.loadAggregateSearches(config.storageArea, config.storageKey, config.chromeApi),
-        Promise.resolve().then(() => loadSiteSearchProviders())
-      ]).then(([definitions, providers]) => {
+        Promise.resolve().then(() => loadSiteSearchProviders()),
+        autoGroupSettingTask
+      ]).then(([definitions, providers, autoGroupSetting]) => {
         const definition = (Array.isArray(definitions) ? definitions : []).find((item) => (
           String(item && item.id || '').trim().toLowerCase() === normalizedId
         ));
@@ -463,7 +474,9 @@
           query: normalizedQuery,
           providers: availability.providers,
           unavailableSourceCount,
-          autoCreateTabGroup: availability.definition.autoCreateTabGroup === true,
+          autoCreateTabGroup: typeof autoGroupSetting === 'boolean'
+            ? autoGroupSetting
+            : availability.definition.autoCreateTabGroup === true,
           windowId: sourceTab && typeof sourceTab.windowId === 'number'
             ? sourceTab.windowId
             : undefined,

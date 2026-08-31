@@ -75,6 +75,9 @@
   const bookmarkFolderIconsVisibleToggle = document.getElementById('_x_extension_bookmark_folder_icons_visible_toggle_2026_unique_');
   const autoPipToggle = document.getElementById('_x_extension_auto_pip_toggle_2024_unique_');
   const tabSwitcherToggle = document.getElementById('_x_extension_tab_switcher_toggle_2026_unique_');
+  const aggregateSearchAutoGroupToggle = document.getElementById(
+    '_x_extension_aggregate_search_auto_group_toggle_2026_unique_'
+  );
   const documentPipToggle = document.getElementById('_x_extension_document_pip_toggle_2026_unique_');
   const pinnedTabRecoveryToggle = document.getElementById('_x_extension_pinned_tab_recovery_toggle_2026_unique_');
   const selectionQuickActionsToggle = document.getElementById('_x_extension_selection_quick_actions_toggle_2026_unique_');
@@ -371,6 +374,7 @@
     [newtabAppearanceButtonVisibleToggle, 'newtab-appearance-button-visible'],
     [faviconEnhancedFetchToggle, 'favicon-enhanced-fetch'],
     [tabSwitcherToggle, 'tab-switcher'],
+    [aggregateSearchAutoGroupToggle, 'aggregate-search-auto-group'],
     [documentPipToggle, 'document-pip'],
     [pinnedTabRecoveryToggle, 'pinned-tab-recovery'],
     [selectionQuickActionsToggle, 'selection-quick-actions'],
@@ -920,6 +924,9 @@
   const AGGREGATE_SEARCH_STORAGE_KEY = SETTINGS.AGGREGATE_SEARCH_STORAGE_KEY ||
     AGGREGATE_SEARCH_STORE.STORAGE_KEY ||
     '_x_extension_aggregate_searches_2026_unique_';
+  const AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY =
+    SETTINGS.AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY ||
+    '_x_extension_aggregate_search_auto_group_enabled_2026_unique_';
   const SEARCH_BLACKLIST_STORAGE_KEY = '_x_extension_search_blacklist_2026_unique_';
   const FAVICON_REQUEST_BLACKLIST_STORAGE_KEY = '_x_extension_favicon_request_blacklist_2026_unique_';
   const FAVICON_ENHANCED_FETCH_ENABLED_STORAGE_KEY = '_x_extension_favicon_enhanced_fetch_enabled_2026_unique_';
@@ -1000,6 +1007,7 @@
     SITE_SEARCH_STORAGE_KEY,
     SITE_SEARCH_DISABLED_STORAGE_KEY,
     AGGREGATE_SEARCH_STORAGE_KEY,
+    AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY,
     SEARCH_BLACKLIST_STORAGE_KEY,
     FAVICON_REQUEST_BLACKLIST_STORAGE_KEY,
     FAVICON_ENHANCED_FETCH_ENABLED_STORAGE_KEY,
@@ -2449,6 +2457,12 @@
   function normalizeSelectionQuickActionsGroupEnabled(value) {
     return typeof SETTINGS.normalizeSelectionQuickActionsGroupEnabled === 'function'
       ? SETTINGS.normalizeSelectionQuickActionsGroupEnabled(value)
+      : value === true;
+  }
+
+  function normalizeAggregateSearchAutoGroupEnabled(value) {
+    return typeof SETTINGS.normalizeAggregateSearchAutoGroupEnabled === 'function'
+      ? SETTINGS.normalizeAggregateSearchAutoGroupEnabled(value)
       : value === true;
   }
 
@@ -5356,6 +5370,18 @@
       storageArea.set({ [TAB_SWITCHER_ENABLED_STORAGE_KEY]: next });
     });
   }
+  if (aggregateSearchAutoGroupToggle) {
+    aggregateSearchAutoGroupToggle.addEventListener('change', () => {
+      const next = normalizeAggregateSearchAutoGroupEnabled(
+        aggregateSearchAutoGroupToggle.checked
+      );
+      setOptionsToggleState(aggregateSearchAutoGroupToggle, next);
+      if (!storageArea) {
+        return;
+      }
+      storageArea.set({ [AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY]: next });
+    });
+  }
   if (documentPipToggle) {
     documentPipToggle.addEventListener('change', () => {
       const next = Boolean(documentPipToggle.checked);
@@ -5671,6 +5697,16 @@
               payload[key] = [];
             }
           });
+        }
+        if (
+          !Object.prototype.hasOwnProperty.call(
+            data,
+            AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY
+          ) &&
+          Object.prototype.hasOwnProperty.call(data, AGGREGATE_SEARCH_STORAGE_KEY)
+        ) {
+          payload[AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY] =
+            deriveLegacyAggregateSearchAutoGroupEnabled(data[AGGREGATE_SEARCH_STORAGE_KEY]);
         }
         if (Object.keys(payload).length === 0) {
           showToast(getMessage('sync_import_invalid', '配置文件无效'), true);
@@ -6103,6 +6139,22 @@
       }
       if (rawValue !== stored) {
         storageArea.set({ [TAB_SWITCHER_ENABLED_STORAGE_KEY]: stored });
+      }
+      refreshCustomSelects();
+    });
+    storageArea.get([
+      AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY,
+      AGGREGATE_SEARCH_STORAGE_KEY
+    ], (result) => {
+      const rawValue = result[AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY];
+      const stored = typeof rawValue === 'undefined'
+        ? deriveLegacyAggregateSearchAutoGroupEnabled(result[AGGREGATE_SEARCH_STORAGE_KEY])
+        : normalizeAggregateSearchAutoGroupEnabled(rawValue);
+      if (aggregateSearchAutoGroupToggle) {
+        setOptionsToggleState(aggregateSearchAutoGroupToggle, stored);
+      }
+      if (rawValue !== stored) {
+        storageArea.set({ [AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY]: stored });
       }
       refreshCustomSelects();
     });
@@ -7002,6 +7054,12 @@
       : [];
   }
 
+  function deriveLegacyAggregateSearchAutoGroupEnabled(value) {
+    return normalizeAggregateSearches(value).some(
+      (item) => item && item.autoCreateTabGroup === true
+    );
+  }
+
   function getAggregateSearchProviderSourceRef(provider) {
     return typeof AGGREGATE_SEARCH_STORE.getProviderSourceRef === 'function'
       ? AGGREGATE_SEARCH_STORE.getProviderSourceRef(provider)
@@ -7047,15 +7105,11 @@
   function getAggregateSearchListCopy() {
     return {
       addLabel: getMessage('aggregate_search_add', '添加聚合搜索'),
-      autoGroupDescription: getMessage(
-        'aggregate_search_auto_group_desc',
-        '将此次聚合搜索打开的所有标签页放入同一个组，并以搜索关键词命名。'
-      ),
-      autoGroupLabel: getMessage('aggregate_search_auto_group_label', '自动创建标签页组'),
       cancelLabel: getMessage('shortcuts_cancel', '取消'),
       confirmLabel: getMessage('confirm_ok', '确认'),
       confirmMessage: getMessage('confirm_remove_item', '确认移除该项？'),
       confirmMessageKey: 'confirm_remove_item',
+      defaultNameBase: getMessage('aggregate_search_default_name', '聚合搜索'),
       editLabel: getMessage('shortcuts_edit', '编辑'),
       groupBadge: getMessage('aggregate_search_badge', '聚合'),
       maxSourcesError: getMessage(
@@ -7067,7 +7121,6 @@
         '请至少选择 2 个搜索源。'
       ),
       nameLabel: getMessage('aggregate_search_name_label', '名称'),
-      namePlaceholder: getMessage('aggregate_search_name_placeholder', '例如：资料调研'),
       nameRequiredError: getMessage(
         'aggregate_search_name_required_error',
         '请填写聚合搜索名称。'
@@ -7132,7 +7185,6 @@
       : null;
     if (availability && !availability.available) {
       return {
-        autoCreateTabGroup: Boolean(item && item.autoCreateTabGroup),
         id: String(item && item.id ? item.id : ''),
         name: String(item && item.name ? item.name : ''),
         sourceRefs: Array.isArray(item && item.sourceRefs) ? item.sourceRefs.slice() : [],
@@ -7148,18 +7200,14 @@
         )
       };
     }
-    const summaryKey = item && item.autoCreateTabGroup
-      ? 'aggregate_search_source_summary_grouped'
-      : 'aggregate_search_source_summary_ungrouped';
-    const summaryFallback = item && item.autoCreateTabGroup
-      ? '{count} sources · Tab group on'
-      : '{count} sources · Tab group off';
     return {
-      autoCreateTabGroup: Boolean(item && item.autoCreateTabGroup),
       id: String(item && item.id ? item.id : ''),
       name: String(item && item.name ? item.name : ''),
       sourceRefs: Array.isArray(item && item.sourceRefs) ? item.sourceRefs.slice() : [],
-      sourceSummary: formatTemplate(getMessage(summaryKey, summaryFallback), { count })
+      sourceSummary: formatTemplate(
+        getMessage('aggregate_search_source_summary', '{count} sources'),
+        { count }
+      )
     };
   }
 
@@ -7295,11 +7343,16 @@
         error: getMessage('aggregate_search_max_sources_error', '最多可选择 10 个搜索源。')
       });
     }
+    const previousItem = currentId
+      ? aggregateSearches.find((item) => String(item && item.id || '') === currentId)
+      : null;
     const nextItem = {
       id: currentId || createPersistentId('aggregate'),
       name,
       sourceRefs,
-      autoCreateTabGroup: Boolean(draft && draft.autoCreateTabGroup)
+      ...(previousItem
+        ? { autoCreateTabGroup: previousItem.autoCreateTabGroup === true }
+        : {})
     };
     if (typeof AGGREGATE_SEARCH_STORE.getAggregateSearchAvailability === 'function') {
       const availability = AGGREGATE_SEARCH_STORE.getAggregateSearchAvailability(
@@ -8283,6 +8336,16 @@
       setOptionsToggleState(tabSwitcherToggle, next);
       if (raw !== next && storageArea) {
         storageArea.set({ [TAB_SWITCHER_ENABLED_STORAGE_KEY]: next });
+      }
+      refreshCustomSelects();
+    }
+    if (changes[AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY] &&
+        aggregateSearchAutoGroupToggle) {
+      const raw = changes[AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY].newValue;
+      const next = normalizeAggregateSearchAutoGroupEnabled(raw);
+      setOptionsToggleState(aggregateSearchAutoGroupToggle, next);
+      if (raw !== next && storageArea) {
+        storageArea.set({ [AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY]: next });
       }
       refreshCustomSelects();
     }

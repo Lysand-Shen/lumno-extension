@@ -19,7 +19,7 @@ assert.strictEqual(settings.addStorageChangeListener({
   storage: { onChanged: { addListener() {} } }
 }, null), false);
 
-assert.strictEqual(settings.CHROME_SYNC_STORAGE_KEYS.length, 64);
+assert.strictEqual(settings.CHROME_SYNC_STORAGE_KEYS.length, 65);
 assert.strictEqual(
   new Set(settings.CHROME_SYNC_STORAGE_KEYS).size,
   settings.CHROME_SYNC_STORAGE_KEYS.length
@@ -37,6 +37,12 @@ assert(settings.CHROME_SYNC_STORAGE_KEYS.includes('_x_extension_newtab_time_font
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes('_x_extension_newtab_time_seconds_visible_2026_unique_'));
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes('_x_extension_search_result_display_limit_2026_unique_'));
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes(settings.AGGREGATE_SEARCH_STORAGE_KEY));
+assert(settings.CHROME_SYNC_STORAGE_KEYS.includes(
+  settings.AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY
+));
+assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(undefined), false);
+assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(false), false);
+assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(true), true);
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes('_x_extension_bookmark_view_mode_2026_unique_'));
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes(settings.NEWTAB_SHORTCUTS_CHUNK_2_STORAGE_KEY));
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes(settings.NEWTAB_SHORTCUTS_CHUNK_3_STORAGE_KEY));

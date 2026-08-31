@@ -70,7 +70,11 @@ assert.strictEqual(
 const scopeProvider = store.createScopeProvider(definition);
 assert.strictEqual(store.isAggregateSearchProvider(scopeProvider), true);
 assert.strictEqual(scopeProvider.aggregateId, 'research');
-assert.strictEqual(scopeProvider.autoCreateTabGroup, true);
+assert.strictEqual(
+  Object.prototype.hasOwnProperty.call(scopeProvider, 'autoCreateTabGroup'),
+  false,
+  'scope providers must not cache the global tab-group preference'
+);
 assert.deepStrictEqual(scopeProvider.sourceRefs, definition.sourceRefs);
 
 const serialized = store.serializeAggregateSearches([

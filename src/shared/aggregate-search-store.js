@@ -393,7 +393,6 @@
       category: 'aggregateSearch',
       aggregateId: normalized.id,
       sourceRefs: normalized.sourceRefs.slice(),
-      autoCreateTabGroup: normalized.autoCreateTabGroup,
       _xIsAggregateSearch: true
     };
   }

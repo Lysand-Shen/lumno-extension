@@ -2,7 +2,7 @@ Tags: Release
 
 ## Features
 
-- 新增聚合搜索，可组合 2–10 个内置或自定义搜索源，一次打开多个搜索结果，并可按关键词自动创建标签页组。
+- 新增聚合搜索，可组合 2–10 个内置或自定义搜索源，一次打开多个搜索结果；常规设置可统一控制是否按关键词自动创建标签页组，新增项会自动生成递增默认名称。
 - 搜索浮层、新标签页、设置页和引导页完成 React 迁移，并移除旧 UI 渲染回退路径。
 - 搜索范围菜单支持范围过滤、双 Tab 确认、退格返回和站内搜索图标展示；同时改善键盘、输入法和 Slash Command 交互。
 - 新标签页新增四套壁纸：印象派果园、点彩湖畔、3D 天文台和山水竹桥。
@@ -25,7 +25,7 @@ Tags: Release
 
 ## Features
 
-- Added aggregate search for combining 2–10 built-in or custom sources, opening all results at once, and optionally grouping tabs under the query name.
+- Added aggregate search for combining 2–10 built-in or custom sources and opening all results at once. A General setting controls optional query-named tab groups, and new entries receive incrementing default names.
 - Completed the React migration for the Command Bar, New Tab, Settings, and Onboarding pages, and removed the legacy UI renderer fallbacks.
 - Search scope menus now support scope filtering, double-Tab confirmation, Backspace navigation, and site-search icons, with improved keyboard, IME, and Slash Command interactions.
 - Added four New Tab wallpapers: Impressionist Orchard, Pointillist Lakeside, 3D Observatory, and Shanshui Bamboo Bridge.

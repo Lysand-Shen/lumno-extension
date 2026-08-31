@@ -19,7 +19,6 @@ export interface AggregateSearchProviderOptionModel {
 }
 
 export interface AggregateSearchItemModel {
-  autoCreateTabGroup: boolean;
   id: string;
   name: string;
   sourceRefs: string[];
@@ -28,18 +27,16 @@ export interface AggregateSearchItemModel {
 
 export interface AggregateSearchCopyModel {
   addLabel: string;
-  autoGroupDescription: string;
-  autoGroupLabel: string;
   cancelLabel: string;
   confirmLabel: string;
   confirmMessage: string;
   confirmMessageKey: string;
+  defaultNameBase: string;
   editLabel: string;
   groupBadge: string;
   maxSourcesError: string;
   minSourcesError: string;
   nameLabel: string;
-  namePlaceholder: string;
   nameRequiredError: string;
   removeLabel: string;
   saveLabel: string;
@@ -59,7 +56,6 @@ export interface AggregateSearchListRenderModel {
 }
 
 export interface AggregateSearchDraft {
-  autoCreateTabGroup: boolean;
   name: string;
   sourceRefs: string[];
 }
@@ -96,6 +92,31 @@ function formatUnavailableSourceLabel(template: string, sourceRef: string) {
   return template.replace(/\{source\}/g, sourceRef);
 }
 
+function normalizeAggregateSearchName(value: string) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+export function getNextAggregateSearchDefaultName(
+  items: AggregateSearchItemModel[],
+  defaultNameBase: string
+) {
+  const baseName = normalizeAggregateSearchName(defaultNameBase);
+  if (!baseName) {
+    return '';
+  }
+  const usedNames = new Set(items.map((item) => (
+    normalizeAggregateSearchName(item.name).toLocaleLowerCase()
+  )));
+  let ordinal = Math.max(1, items.length + 1);
+  while (true) {
+    const candidate = ordinal === 1 ? baseName : `${baseName} ${ordinal}`;
+    if (!usedNames.has(candidate.toLocaleLowerCase())) {
+      return candidate;
+    }
+    ordinal += 1;
+  }
+}
+
 function AggregateSearchEditor({
   appearance = 'item',
   item,
@@ -112,12 +133,14 @@ function AggregateSearchEditor({
     draft: AggregateSearchDraft
   ): AggregateSearchSaveResult | Promise<AggregateSearchSaveResult>;
 }) {
-  const [name, setName] = useState(item?.name || '');
+  const [name, setName] = useState(() => item
+    ? item.name
+    : getNextAggregateSearchDefaultName(
+      model.items,
+      model.copy.defaultNameBase
+    ));
   const [selected, setSelected] = useState(
     () => new Set(item?.sourceRefs || [])
-  );
-  const [autoCreateTabGroup, setAutoCreateTabGroup] = useState(
-    item?.autoCreateTabGroup === true
   );
   const [error, setError] = useState('');
   const [errorField, setErrorField] = useState<
@@ -231,7 +254,6 @@ function AggregateSearchEditor({
             clearError();
             setName(event.currentTarget.value);
           }}
-          placeholder={model.copy.namePlaceholder}
           value={name}
         />
       </div>
@@ -309,32 +331,6 @@ function AggregateSearchEditor({
           ))}
         </div>
       </div>
-      <div className="_x_extension_aggregate_search_group_toggle_row_2026_unique_">
-        <div>
-          <div className="_x_extension_shortcut_label_2024_unique_">
-            {model.copy.autoGroupLabel}
-          </div>
-          <div className="_x_extension_setting_desc_2024_unique_">
-            {model.copy.autoGroupDescription}
-          </div>
-        </div>
-        <label className="_x_extension_switch_2024_unique_">
-          <input
-            aria-label={model.copy.autoGroupLabel}
-            checked={autoCreateTabGroup}
-            disabled={saving}
-            onChange={(event) => {
-              clearError();
-              setAutoCreateTabGroup(event.currentTarget.checked);
-            }}
-            type="checkbox"
-          />
-          <span
-            aria-hidden="true"
-            className="_x_extension_switch_slider_2024_unique_"
-          />
-        </label>
-      </div>
       <div className="_x_extension_shortcut_editor_actions_2024_unique_">
         <button
           className="_x_extension_shortcut_submit_2024_unique_ _x_extension_shortcut_secondary_2024_unique_"
@@ -362,7 +358,6 @@ function AggregateSearchEditor({
               return;
             }
             const outcome = await saveAction.run(item?.id || null, {
-              autoCreateTabGroup,
               name: name.trim(),
               sourceRefs: Array.from(selected)
             });
