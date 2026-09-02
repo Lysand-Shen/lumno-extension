@@ -20,6 +20,7 @@ export interface AggregateSearchProviderOptionModel {
 
 export interface AggregateSearchItemModel {
   id: string;
+  key: string;
   name: string;
   sourceRefs: string[];
   sourceSummary: string;
@@ -34,6 +35,10 @@ export interface AggregateSearchCopyModel {
   defaultNameBase: string;
   editLabel: string;
   groupBadge: string;
+  keyLabel: string;
+  keyPlaceholder: string;
+  keyRequiredError: string;
+  keySpaceError: string;
   maxSourcesError: string;
   minSourcesError: string;
   nameLabel: string;
@@ -49,6 +54,7 @@ export interface AggregateSearchCopyModel {
 export interface AggregateSearchListRenderModel {
   copy: AggregateSearchCopyModel;
   items: AggregateSearchItemModel[];
+  maxKeyLength: number;
   maxNameLength: number;
   maxSourceCount: number;
   minSourceCount: number;
@@ -56,6 +62,7 @@ export interface AggregateSearchListRenderModel {
 }
 
 export interface AggregateSearchDraft {
+  key: string;
   name: string;
   sourceRefs: string[];
 }
@@ -76,7 +83,7 @@ export interface AggregateSearchListControllerOptions {
 export type AggregateSearchListController =
   ReactRootController<AggregateSearchListRenderModel>;
 
-type AggregateSearchEditorErrorField = 'name' | 'save' | 'sources';
+type AggregateSearchEditorErrorField = 'key' | 'name' | 'save' | 'sources';
 
 type AggregateSearchFocusTarget =
   | { kind: 'add' }
@@ -139,6 +146,7 @@ function AggregateSearchEditor({
       model.items,
       model.copy.defaultNameBase
     ));
+  const [key, setKey] = useState(() => item?.key || '');
   const [selected, setSelected] = useState(
     () => new Set(item?.sourceRefs || [])
   );
@@ -147,6 +155,7 @@ function AggregateSearchEditor({
     AggregateSearchEditorErrorField | null
   >(null);
   const errorId = useId();
+  const keyId = useId();
   const nameId = useId();
   const sourcesId = useId();
   const saveAction = useExclusiveAsyncAction(onSave);
@@ -258,6 +267,30 @@ function AggregateSearchEditor({
         />
       </div>
       <div className="_x_extension_shortcut_field_2024_unique_">
+        <label
+          className="_x_extension_shortcut_label_2024_unique_"
+          htmlFor={keyId}
+        >
+          <span>{model.copy.keyLabel}</span>
+          <span className="_x_extension_shortcut_required_2024_unique_">*</span>
+        </label>
+        <input
+          aria-describedby={error && errorField === 'key' ? errorId : undefined}
+          aria-invalid={errorField === 'key'}
+          className="_x_extension_shortcut_input_2024_unique_"
+          data-aggregate-field="key"
+          disabled={saving}
+          id={keyId}
+          maxLength={model.maxKeyLength}
+          onChange={(event) => {
+            clearError();
+            setKey(event.currentTarget.value);
+          }}
+          placeholder={model.copy.keyPlaceholder}
+          value={key}
+        />
+      </div>
+      <div className="_x_extension_shortcut_field_2024_unique_">
         <div className="_x_extension_aggregate_search_source_header_2026_unique_">
           <div className="_x_extension_shortcut_label_2024_unique_">
             {model.copy.sourcesLabel}
@@ -345,6 +378,14 @@ function AggregateSearchEditor({
           className="_x_extension_shortcut_submit_2024_unique_ _x_extension_shortcut_submit_primary_2024_unique_ _x_extension_shortcut_save_2024_unique_"
           disabled={saving}
           onClick={async () => {
+            if (!key.trim()) {
+              showError('key', model.copy.keyRequiredError);
+              return;
+            }
+            if (/\s/.test(key.trim())) {
+              showError('key', model.copy.keySpaceError);
+              return;
+            }
             if (!name.trim()) {
               showError('name', model.copy.nameRequiredError);
               return;
@@ -358,6 +399,7 @@ function AggregateSearchEditor({
               return;
             }
             const outcome = await saveAction.run(item?.id || null, {
+              key: key.trim(),
               name: name.trim(),
               sourceRefs: Array.from(selected)
             });
@@ -460,7 +502,7 @@ function AggregateSearchList({
                     <span>{item.name}</span>
                   </div>
                   <div className="_x_extension_shortcut_item_meta_2024_unique_">
-                    {item.sourceSummary}
+                    {item.key ? `${item.key} · ${item.sourceSummary}` : item.sourceSummary}
                   </div>
                 </div>
                 <div className="_x_extension_shortcut_item_actions_2024_unique_">

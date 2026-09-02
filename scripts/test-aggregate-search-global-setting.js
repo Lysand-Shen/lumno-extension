@@ -27,8 +27,8 @@ assert(
 );
 assert.match(
   generalPanel,
-  /id="_x_extension_aggregate_search_auto_group_toggle_2026_unique_" type="checkbox" aria-label="聚合搜索自动创建标签页组" data-i18n-aria-label="settings_aggregate_search_auto_group_title">/,
-  'the global aggregate tab-group setting should default to off'
+  /id="_x_extension_aggregate_search_auto_group_toggle_2026_unique_" type="checkbox" aria-label="聚合搜索自动创建标签页组" data-i18n-aria-label="settings_aggregate_search_auto_group_title" checked>/,
+  'the global aggregate tab-group setting should default to on'
 );
 
 assert.strictEqual(
@@ -38,7 +38,7 @@ assert.strictEqual(
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes(
   settings.AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY
 ));
-assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(undefined), false);
+assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(undefined), true);
 assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(false), false);
 assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(true), true);
 
@@ -70,7 +70,32 @@ assert.doesNotMatch(
 );
 assert.match(aggregateEditorSource, /defaultNameBase/);
 assert.match(aggregateEditorSource, /let ordinal = Math\.max\(1, items\.length \+ 1\)/);
-assert.doesNotMatch(aggregateEditorSource, /placeholder=/);
+const aggregateNameFieldIndex = aggregateEditorSource.indexOf('data-aggregate-field="name"');
+const aggregateNameInputStart = aggregateEditorSource.lastIndexOf(
+  '<input',
+  aggregateNameFieldIndex
+);
+const aggregateNameInputEnd = aggregateEditorSource.indexOf('/>', aggregateNameFieldIndex);
+assert(
+  aggregateNameFieldIndex >= 0
+    && aggregateNameInputStart >= 0
+    && aggregateNameInputEnd > aggregateNameFieldIndex,
+  'the aggregate name input must exist'
+);
+const aggregateNameInput = aggregateEditorSource.slice(
+  aggregateNameInputStart,
+  aggregateNameInputEnd + 2
+);
+assert.doesNotMatch(
+  aggregateNameInput,
+  /placeholder=/,
+  'the aggregate name input must not restore the old example placeholder'
+);
+assert.match(
+  aggregateEditorSource,
+  /data-aggregate-field="key"[\s\S]*?placeholder=\{model\.copy\.keyPlaceholder\}/,
+  'the aggregate trigger input should retain its localized placeholder'
+);
 
 const scopeProvider = aggregateStore.createScopeProvider({
   id: 'legacy',
@@ -91,8 +116,8 @@ assert.match(
 );
 assert.match(
   aggregateRuntimeSource,
-  /typeof autoGroupSetting === 'boolean'[\s\S]*?autoGroupSetting[\s\S]*?availability\.definition\.autoCreateTabGroup === true/,
-  'the runner must prefer the global value and retain a legacy fallback'
+  /resolveAggregateSearchAutoGroupEnabled\([\s\S]*?autoGroupSetting,[\s\S]*?definitions[\s\S]*?\)/,
+  'the runner must prefer the global value and retain the legacy migration fallback'
 );
 
 const expectedCopy = {

@@ -267,9 +267,16 @@
       options,
       'autoCreateTabGroup'
     );
+    const definition = options.definition && typeof options.definition === 'object'
+      ? options.definition
+      : null;
+    const hasLegacyGroupSetting = Boolean(definition) && Object.prototype.hasOwnProperty.call(
+      definition,
+      'autoCreateTabGroup'
+    );
     const shouldCreateGroup = hasExplicitGroupSetting
       ? options.autoCreateTabGroup === true
-      : Boolean(options.definition && options.definition.autoCreateTabGroup === true);
+      : (hasLegacyGroupSetting ? definition.autoCreateTabGroup === true : true);
     let groupId = null;
     let grouped = false;
     let groupTitleApplied = false;
@@ -377,6 +384,26 @@
     return 'extension';
   }
 
+  function resolveAggregateSearchAutoGroupEnabled(value, definitions, fallbackDefinition) {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    const items = Array.isArray(definitions) ? definitions : [];
+    const legacyItems = items.filter((item) => (
+      item && Object.prototype.hasOwnProperty.call(item, 'autoCreateTabGroup')
+    ));
+    if (legacyItems.length > 0) {
+      return legacyItems.some((item) => item.autoCreateTabGroup === true);
+    }
+    if (fallbackDefinition && Object.prototype.hasOwnProperty.call(
+      fallbackDefinition,
+      'autoCreateTabGroup'
+    )) {
+      return fallbackDefinition.autoCreateTabGroup === true;
+    }
+    return true;
+  }
+
   function createAggregateSearchQueryRunner(rawConfig) {
     const config = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
     const store = config.aggregateSearchStore || {};
@@ -474,9 +501,11 @@
           query: normalizedQuery,
           providers: availability.providers,
           unavailableSourceCount,
-          autoCreateTabGroup: typeof autoGroupSetting === 'boolean'
-            ? autoGroupSetting
-            : availability.definition.autoCreateTabGroup === true,
+          autoCreateTabGroup: resolveAggregateSearchAutoGroupEnabled(
+            autoGroupSetting,
+            definitions,
+            availability.definition
+          ),
           windowId: sourceTab && typeof sourceTab.windowId === 'number'
             ? sourceTab.windowId
             : undefined,
@@ -515,6 +544,7 @@
     DEFAULT_DEDUPE_WINDOW_MS,
     createAggregateSearchQueryRunner,
     isSafeSearchUrl,
-    openAggregateSearch
+    openAggregateSearch,
+    resolveAggregateSearchAutoGroupEnabled
   });
 });

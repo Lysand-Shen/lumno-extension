@@ -1751,6 +1751,9 @@
   "aggregate_search_name_required_error": {
     "message": "請填寫彙整搜尋名稱。"
   },
+  "aggregate_search_key_placeholder": {
+    "message": "例如 tech"
+  },
   "aggregate_search_default_name": {
     "message": "彙整搜尋"
   },

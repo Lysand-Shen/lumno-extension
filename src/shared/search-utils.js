@@ -3040,6 +3040,9 @@
       if (providerKey === key) {
         return true;
       }
+      if (provider && provider._xIsAggregateSearch === true) {
+        return false;
+      }
       const providerName = String(provider && provider.name || '').trim().toLowerCase();
       if (providerName === key) {
         return true;
@@ -3166,7 +3169,9 @@
       return false;
     }
     const allowPrefix = needle.length >= 2;
-    const tokens = [provider.key, provider.name].concat(provider.aliases || []);
+    const tokens = provider._xIsAggregateSearch === true
+      ? [provider.key]
+      : [provider.key, provider.name].concat(provider.aliases || []);
     for (let i = 0; i < tokens.length; i += 1) {
       const token = String(tokens[i] || '').toLowerCase();
       if (!token) {

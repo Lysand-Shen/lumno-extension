@@ -1751,6 +1751,9 @@
   "aggregate_search_name_required_error": {
     "message": "この一括検索の名前を入力してください。"
   },
+  "aggregate_search_key_placeholder": {
+    "message": "例: tech"
+  },
   "aggregate_search_default_name": {
     "message": "一括検索"
   },

@@ -40,7 +40,7 @@ assert(settings.CHROME_SYNC_STORAGE_KEYS.includes(settings.AGGREGATE_SEARCH_STOR
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes(
   settings.AGGREGATE_SEARCH_AUTO_GROUP_ENABLED_STORAGE_KEY
 ));
-assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(undefined), false);
+assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(undefined), true);
 assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(false), false);
 assert.strictEqual(settings.normalizeAggregateSearchAutoGroupEnabled(true), true);
 assert(settings.CHROME_SYNC_STORAGE_KEYS.includes('_x_extension_bookmark_view_mode_2026_unique_'));

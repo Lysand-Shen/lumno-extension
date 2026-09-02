@@ -20,6 +20,10 @@ const model: AggregateSearchListRenderModel = {
     defaultNameBase: '聚合搜索',
     editLabel: '编辑',
     groupBadge: '聚合',
+    keyLabel: '触发词',
+    keyPlaceholder: '例如 tech',
+    keyRequiredError: '请输入触发词',
+    keySpaceError: '触发词不能包含空格',
     maxSourcesError: '最多 10 个',
     minSourcesError: '至少 2 个',
     nameLabel: '名称',
@@ -32,6 +36,7 @@ const model: AggregateSearchListRenderModel = {
     unavailableSourceLabel: '不可用的搜索源（{source}）'
   },
   items: [],
+  maxKeyLength: 32,
   maxNameLength: 80,
   maxSourceCount: 10,
   minSourceCount: 2,
@@ -112,6 +117,10 @@ function openAddEditorWithValidDraft(host: HTMLElement) {
       host.querySelector<HTMLInputElement>('[data-aggregate-field="name"]'),
       '技术检索'
     );
+    setInputValue(
+      host.querySelector<HTMLInputElement>('[data-aggregate-field="key"]'),
+      'tech'
+    );
     host.querySelector<HTMLInputElement>('[data-source-ref="builtin:gg"]')
       ?.click();
     host.querySelector<HTMLInputElement>('[data-source-ref="builtin:gh"]')
@@ -160,6 +169,12 @@ describe('Options aggregate-search React island', () => {
     expect(nameInput?.maxLength).toBe(80);
     expect(nameInput?.value).toBe('聚合搜索');
     expect(nameInput?.hasAttribute('placeholder')).toBe(false);
+    const keyInput = host.querySelector<HTMLInputElement>(
+      '[data-aggregate-field="key"]'
+    );
+    expect(keyInput?.maxLength).toBe(32);
+    expect(keyInput?.placeholder).toBe(model.copy.keyPlaceholder);
+    act(() => setInputValue(keyInput, 'all'));
     expect(addForm?.querySelector<HTMLButtonElement>(
       '._x_extension_shortcut_save_2024_unique_'
     )?.textContent).toBe(model.copy.addLabel);
@@ -172,6 +187,7 @@ describe('Options aggregate-search React island', () => {
     await clickSave(host);
 
     expect(options.onSave).toHaveBeenCalledWith(null, {
+      key: 'all',
       name: '聚合搜索',
       sourceRefs: ['builtin:gg', 'builtin:gh']
     });
@@ -180,6 +196,7 @@ describe('Options aggregate-search React island', () => {
   it('numbers later defaults from the item count and skips occupied candidates', () => {
     const firstItem = {
       id: 'aggregate:first',
+      key: 'all',
       name: '聚合搜索',
       sourceRefs: ['builtin:gg', 'builtin:gh'],
       sourceSummary: '2 个搜索源'
@@ -202,14 +219,34 @@ describe('Options aggregate-search React island', () => {
     ], '聚合搜索')).toBe('聚合搜索 4');
   });
 
-  it('shows required-name and minimum-source validation before saving', async () => {
+  it('shows trigger, required-name, and minimum-source validation before saving', async () => {
     const { host, options } = createFixture();
     act(() => {
       host.querySelector<HTMLButtonElement>(
         '._x_extension_aggregate_search_add_2026_unique_'
       )?.click();
     });
+    await clickSave(host);
+    expect(host.querySelector('[role="alert"]')?.textContent)
+      .toBe(model.copy.keyRequiredError);
+    expect(host.querySelector('[data-aggregate-field="key"]')
+      ?.getAttribute('aria-invalid')).toBe('true');
+
     act(() => {
+      setInputValue(
+        host.querySelector<HTMLInputElement>('[data-aggregate-field="key"]'),
+        'two words'
+      );
+    });
+    await clickSave(host);
+    expect(host.querySelector('[role="alert"]')?.textContent)
+      .toBe(model.copy.keySpaceError);
+
+    act(() => {
+      setInputValue(
+        host.querySelector<HTMLInputElement>('[data-aggregate-field="key"]'),
+        'tech'
+      );
       setInputValue(
         host.querySelector<HTMLInputElement>('[data-aggregate-field="name"]'),
         ''
@@ -333,6 +370,7 @@ describe('Options aggregate-search React island', () => {
   it('keeps a selected source visible and removable if it disappears while editing', async () => {
     const unavailableItem = {
       id: 'aggregate:needs-repair',
+      key: 'repair',
       name: '待修复聚合',
       sourceRefs: ['builtin:gg', 'custom:docs'],
       sourceSummary: '2 个搜索源 · 1 个不可用'
@@ -373,6 +411,7 @@ describe('Options aggregate-search React island', () => {
     await clickSave(host);
 
     expect(options.onSave).toHaveBeenCalledWith(unavailableItem.id, {
+      key: unavailableItem.key,
       name: unavailableItem.name,
       sourceRefs: ['builtin:gg', 'builtin:gh']
     });
@@ -381,6 +420,7 @@ describe('Options aggregate-search React island', () => {
   it('restores focus after cancelling or successfully saving an unmounted editor', async () => {
     const item = {
       id: 'aggregate:focus',
+      key: 'focus',
       name: '焦点测试',
       sourceRefs: ['builtin:gg', 'builtin:gh'],
       sourceSummary: '2 个搜索源'
@@ -435,12 +475,14 @@ describe('Options aggregate-search React island', () => {
     const items = [
       {
         id: 'aggregate:first',
+        key: 'first',
         name: '第一个',
         sourceRefs: ['builtin:gg', 'builtin:gh'],
         sourceSummary: '2 个搜索源'
       },
       {
         id: 'aggregate:second',
+        key: 'second',
         name: '第二个',
         sourceRefs: ['builtin:gg', 'builtin:gh'],
         sourceSummary: '2 个搜索源'
@@ -491,6 +533,7 @@ describe('Options aggregate-search React island', () => {
   it('edits and removes an existing aggregate', async () => {
     const item = {
       id: 'aggregate:tech',
+      key: 'tech',
       name: '技术检索',
       sourceRefs: ['builtin:gg', 'builtin:gh'],
       sourceSummary: '2 个搜索源 · 不创建标签页组'
@@ -518,6 +561,10 @@ describe('Options aggregate-search React island', () => {
         host.querySelector<HTMLInputElement>('[data-aggregate-field="name"]'),
         '开发检索'
       );
+      setInputValue(
+        host.querySelector<HTMLInputElement>('[data-aggregate-field="key"]'),
+        'dev'
+      );
       host.querySelector<HTMLInputElement>('[data-source-ref="builtin:gh"]')
         ?.click();
       host.querySelector<HTMLInputElement>('[data-source-ref="custom:docs"]')
@@ -526,6 +573,7 @@ describe('Options aggregate-search React island', () => {
     await clickSave(host);
 
     expect(options.onSave).toHaveBeenCalledWith(item.id, {
+      key: 'dev',
       name: '开发检索',
       sourceRefs: ['builtin:gg', 'custom:docs']
     });

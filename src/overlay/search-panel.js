@@ -2937,9 +2937,32 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
       if (!searchScopeIcon) {
         return;
       }
-      searchScopeIcon.dataset.hoverActive = active ? 'true' : 'false';
+      const enabled = searchScopeIcon.getAttribute('aria-disabled') !== 'true';
+      searchScopeIcon.dataset.hoverActive = active && enabled ? 'true' : 'false';
+    };
+    const setSearchScopeIconEnabled = (enabled) => {
+      if (!searchScopeIcon) {
+        return;
+      }
+      const nextEnabled = enabled !== false;
+      searchScopeIcon.setAttribute('aria-disabled', nextEnabled ? 'false' : 'true');
+      searchScopeIcon.setAttribute('tabindex', nextEnabled ? '0' : '-1');
+      searchScopeIcon.setAttribute('aria-label', searchScopeTooltipText());
+      if (nextEnabled) {
+        searchScopeIcon.setAttribute('data-tooltip', searchScopeTooltipText());
+        return;
+      }
+      searchScopeIcon.removeAttribute('data-tooltip');
+      hideInputActionCursorTooltip();
+      setSearchScopeIconVisualState(false);
+      if (typeof searchScopeIcon.blur === 'function') {
+        searchScopeIcon.blur();
+      }
     };
     const activateSearchScopeIcon = (event) => {
+      if (!searchScopeIcon || searchScopeIcon.getAttribute('aria-disabled') === 'true') {
+        return;
+      }
       if (event && typeof event.preventDefault === 'function') {
         event.preventDefault();
       }
@@ -2960,9 +2983,7 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
     if (searchScopeIcon) {
       searchScopeIcon.dataset.searchScopeAction = 'true';
       searchScopeIcon.setAttribute('role', 'button');
-      searchScopeIcon.setAttribute('tabindex', '0');
-      searchScopeIcon.setAttribute('aria-label', searchScopeTooltipText());
-      searchScopeIcon.setAttribute('data-tooltip', searchScopeTooltipText());
+      setSearchScopeIconEnabled(true);
       setSearchScopeIconVisualState(false);
       searchScopeIcon.addEventListener('mouseenter', () => {
         setSearchScopeIconVisualState(true);
@@ -4976,6 +4997,9 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
         ));
       },
       onModeTagRemovalConfirmationReset: hideOverlayToast,
+      onModeTagActiveChange: (active) => {
+        setSearchScopeIconEnabled(!active);
+      },
       onModeMenuLayoutChange: syncSearchModeMenuResultOffset,
       isTabHintSuppressed: () => Boolean(
         siteSearchState ||
@@ -5868,6 +5892,12 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
       if (inputModeController && typeof inputModeController.refreshModeMenu === 'function') {
         inputModeController.refreshModeMenu();
       }
+      if (searchInput && searchInput.value) {
+        syncSearchTriggerHintFromInput(searchInput.value);
+      }
+      if (latestOverlayQuery) {
+        requestOverlaySearchSuggestions(latestOverlayQuery);
+      }
     });
 
     storageChangeListeners.add((changes, areaName) => {
@@ -6207,6 +6237,21 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
         definition,
         Array.isArray(providers) ? providers : getSearchModeProviders()
       );
+    }
+
+    function getSearchTriggerProviders(providers, definitions) {
+      const sourceProviders = Array.isArray(providers) ? providers : [];
+      const availableDefinitions = (Array.isArray(definitions) ? definitions : [])
+        .filter((definition) => isAggregateSearchDefinitionAvailable(
+          definition,
+          sourceProviders
+        ));
+      return typeof AGGREGATE_SEARCH_STORE.mergeTriggerProviders === 'function'
+        ? AGGREGATE_SEARCH_STORE.mergeTriggerProviders(
+          sourceProviders,
+          availableDefinitions
+        )
+        : sourceProviders;
     }
 
     function buildSearchModeMenuItems() {
@@ -6613,9 +6658,13 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
         return;
       }
 
-      const providers = (siteSearchProvidersCache && siteSearchProvidersCache.length > 0)
+      const siteProviders = (siteSearchProvidersCache && siteSearchProvidersCache.length > 0)
         ? siteSearchProvidersCache
         : defaultSiteSearchProviders;
+      const providers = getSearchTriggerProviders(
+        siteProviders,
+        aggregateSearchesCache
+      );
       if (getInlineSiteSearchCandidate(triggerInput, providers)) {
         clearPendingSearchTriggerHint();
         return;
@@ -6851,9 +6900,13 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
       }
       if (triggerInput) {
         e.preventDefault();
-        const providers = (siteSearchProvidersCache && siteSearchProvidersCache.length > 0)
+        const siteProviders = (siteSearchProvidersCache && siteSearchProvidersCache.length > 0)
           ? siteSearchProvidersCache
           : defaultSiteSearchProviders;
+        const providers = getSearchTriggerProviders(
+          siteProviders,
+          aggregateSearchesCache
+        );
         const topSiteMatch = getTopSiteMatchCandidate(currentSuggestions, triggerInput);
         const directProvider = getSiteSearchTriggerCandidate(triggerInput, providers, topSiteMatch);
         if (directProvider) {
@@ -6866,13 +6919,21 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
           activateLocalSearchScope(directLocalScope);
           return true;
         }
-        Promise.all([getSiteSearchProviders(), getShortcutRules()]).then(([items, rules]) => {
+        Promise.all([
+          getSiteSearchProviders(),
+          getAggregateSearches(),
+          getShortcutRules()
+        ]).then(([items, definitions, rules]) => {
           if (siteSearchState || localSearchScopeState || openTabsSearchModeActive ||
               String(searchInput.value || '').trim() !== triggerInput) {
             return;
           }
           const asyncTopSiteMatch = getTopSiteMatchCandidate(currentSuggestions, triggerInput);
-          const asyncProvider = getSiteSearchTriggerCandidate(triggerInput, items, asyncTopSiteMatch);
+          const asyncProvider = getSiteSearchTriggerCandidate(
+            triggerInput,
+            getSearchTriggerProviders(items, definitions),
+            asyncTopSiteMatch
+          );
           if (asyncProvider) {
             activateSiteSearch(asyncProvider);
             return;
@@ -8171,9 +8232,13 @@ window._x_extension_toggleSearchOverlay_2026_unique_ = function(tabs, overlayCon
           preSuggestions.push(...keywordSuggestions);
         }
 
-        const providersForTags = (siteSearchProvidersCache && siteSearchProvidersCache.length > 0)
+        const siteProvidersForTags = (siteSearchProvidersCache && siteSearchProvidersCache.length > 0)
           ? siteSearchProvidersCache
           : defaultSiteSearchProviders;
+        const providersForTags = getSearchTriggerProviders(
+          siteProvidersForTags,
+          aggregateSearchesCache
+        );
         if (!siteSearchProvidersCache && !pendingProviderReload) {
           pendingProviderReload = true;
           getSiteSearchProviders().then((items) => {

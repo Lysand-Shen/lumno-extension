@@ -1751,6 +1751,9 @@
   "aggregate_search_name_required_error": {
     "message": "Enter a name for this aggregate search."
   },
+  "aggregate_search_key_placeholder": {
+    "message": "For example, tech"
+  },
   "aggregate_search_default_name": {
     "message": "Aggregate search"
   },

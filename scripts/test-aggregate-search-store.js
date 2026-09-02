@@ -16,12 +16,14 @@ assert.strictEqual(store.getProviderSourceRef(providers[3]), 'custom-key:legacy'
 
 const definition = store.normalizeAggregateSearch({
   id: 'research',
+  key: 'Research',
   name: '  Research   Search ',
   sourceRefs: ['builtin:gg', 'custom:custom-1', 'builtin:gg'],
   autoCreateTabGroup: true
 });
 assert.deepStrictEqual(definition, {
   id: 'research',
+  key: 'research',
   name: 'Research Search',
   sourceRefs: ['builtin:gg', 'custom:custom-1'],
   autoCreateTabGroup: true
@@ -70,6 +72,7 @@ assert.strictEqual(
 const scopeProvider = store.createScopeProvider(definition);
 assert.strictEqual(store.isAggregateSearchProvider(scopeProvider), true);
 assert.strictEqual(scopeProvider.aggregateId, 'research');
+assert.strictEqual(scopeProvider.key, 'research');
 assert.strictEqual(
   Object.prototype.hasOwnProperty.call(scopeProvider, 'autoCreateTabGroup'),
   false,
@@ -81,13 +84,38 @@ const serialized = store.serializeAggregateSearches([
   definition,
   { id: 'invalid', name: 'Only one', sourceRefs: ['builtin:gg'] }
 ]);
-assert.strictEqual(serialized.version, 1);
+assert.strictEqual(serialized.version, 2);
 assert.deepStrictEqual(serialized.items, [definition]);
+
+const legacyDefinition = store.normalizeAggregateSearch({
+  id: 'legacy-range-only',
+  name: 'Legacy range-only aggregate',
+  sourceRefs: ['builtin:gg', 'custom:custom-1']
+});
+assert.strictEqual(legacyDefinition.key, '');
+assert.strictEqual(
+  store.createScopeProvider(legacyDefinition).key,
+  'aggregate-legacy-range-only',
+  'legacy aggregates without a trigger must remain selectable from the range panel'
+);
+
+const triggerProviders = store.mergeTriggerProviders(providers, [
+  definition,
+  { ...definition, id: 'duplicate-normal', key: 'gg' },
+  { ...definition, id: 'duplicate-aggregate', key: 'research' },
+  legacyDefinition
+]);
+assert.deepStrictEqual(
+  triggerProviders.filter(store.isAggregateSearchProvider).map((item) => item.key),
+  ['research'],
+  'normal provider keys win and duplicate or missing aggregate triggers are ignored'
+);
 
 const quotaBoundaryItems = Array.from(
   { length: store.MAX_AGGREGATE_COUNT + 1 },
   (_unused, index) => ({
     id: `aggregate-${String(index).padStart(2, '0')}-${'a'.repeat(33)}`,
+    key: `aggregate-${index}`,
     name: '😀'.repeat(store.MAX_NAME_LENGTH),
     sourceRefs: Array.from(
       { length: store.MAX_SOURCE_COUNT },
@@ -109,6 +137,7 @@ const worstCaseQuotaItems = Array.from(
   { length: store.MAX_AGGREGATE_COUNT },
   (_unused, index) => ({
     id: `${index}${'a'.repeat(store.MAX_ID_BYTES - 1)}`,
+    key: '中'.repeat(store.MAX_KEY_LENGTH),
     name: '中'.repeat(store.MAX_NAME_LENGTH),
     sourceRefs: Array.from(
       { length: store.MAX_SOURCE_COUNT },
@@ -133,6 +162,7 @@ assert.ok(
 const escapedQuotaPayload = store.serializeAggregateSearches(
   Array.from({ length: store.MAX_AGGREGATE_COUNT }, (_unused, index) => ({
     id: `${index}${'\\'.repeat(store.MAX_ID_BYTES)}`,
+    key: '\\'.repeat(store.MAX_KEY_LENGTH),
     name: '\\'.repeat(store.MAX_NAME_LENGTH),
     sourceRefs: Array.from(
       { length: store.MAX_SOURCE_COUNT },

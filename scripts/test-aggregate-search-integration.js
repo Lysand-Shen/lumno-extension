@@ -139,6 +139,16 @@ assert.match(
 );
 assert.match(
   optionsSource,
+  /function findSiteSearchKeyConflict\(key, allowedKey, allowedAggregateId\)[\s\S]*?defaultSiteSearchProviders\.concat\(customSiteSearchProviders\)[\s\S]*?aggregateSearches\.find/,
+  'normal and aggregate search triggers must share one conflict check'
+);
+assert.match(
+  optionsSource,
+  /function handleAggregateSearchSave[\s\S]*?normalizeAggregateSearchKey[\s\S]*?findSiteSearchKeyConflict\(key, '', currentId\)[\s\S]*?shortcuts_error_key_duplicate/,
+  'aggregate saves must reject built-in, custom, and aggregate trigger collisions'
+);
+assert.match(
+  optionsSource,
   /getAggregateSearchAvailability\([\s\S]*?aggregate_search_source_selection_unavailable_error/,
   'options must reject saves that still reference unavailable sources'
 );
@@ -235,6 +245,11 @@ assert.doesNotMatch(sharedMessageSource, /urls:/);
   );
   assert.match(
     source,
+    /function getSearchTriggerProviders\(providers, definitions\)[\s\S]*?mergeTriggerProviders/,
+    `${surface} must include valid aggregate triggers in the normal Tab trigger provider set`
+  );
+  assert.match(
+    source,
     /if \(aggregateSearchesLoadPromise\) \{\s*return aggregateSearchesLoadPromise;/,
     `${surface} must reuse an in-flight aggregate storage read`
   );
@@ -264,7 +279,8 @@ assert.match(
     `${locale} must localize the aggregate clear action and confirmation`
   );
   assert.ok(
-    messages.aggregate_search_source_summary_unavailable &&
+    messages.aggregate_search_key_placeholder &&
+      messages.aggregate_search_source_summary_unavailable &&
       messages.aggregate_search_sources_unavailable_error &&
       messages.aggregate_search_in_progress &&
       messages.aggregate_search_partial_failure &&

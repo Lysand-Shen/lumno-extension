@@ -502,7 +502,7 @@
   }
 
   function normalizeAggregateSearchAutoGroupEnabled(value) {
-    return value === true;
+    return value !== false;
   }
 
   function normalizeThemePreference(value) {

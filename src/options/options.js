@@ -2463,7 +2463,7 @@
   function normalizeAggregateSearchAutoGroupEnabled(value) {
     return typeof SETTINGS.normalizeAggregateSearchAutoGroupEnabled === 'function'
       ? SETTINGS.normalizeAggregateSearchAutoGroupEnabled(value)
-      : value === true;
+      : value !== false;
   }
 
   function normalizeSearchResultPriority(value) {
@@ -4937,25 +4937,35 @@
     return provider;
   }
 
-  function findSiteSearchKeyConflict(key, allowedKey) {
+  function findSiteSearchKeyConflict(key, allowedKey, allowedAggregateId) {
     const normalizedKey = String(key || '').trim().toLowerCase();
     const normalizedAllowedKey = String(allowedKey || '').trim().toLowerCase();
-    if (!normalizedKey || normalizedKey === normalizedAllowedKey) {
+    const normalizedAllowedAggregateId = String(allowedAggregateId || '').trim();
+    if (!normalizedKey) {
       return null;
     }
     const providers = defaultSiteSearchProviders.concat(customSiteSearchProviders);
+    let providerConflict = null;
     if (typeof SEARCH_UTILS.findSiteSearchProviderKeyConflict === 'function') {
-      return SEARCH_UTILS.findSiteSearchProviderKeyConflict(
+      providerConflict = SEARCH_UTILS.findSiteSearchProviderKeyConflict(
         normalizedKey,
         providers,
         normalizedAllowedKey
       );
+    } else if (normalizedKey !== normalizedAllowedKey &&
+        typeof SEARCH_UTILS.findSiteSearchProviderByKey === 'function') {
+      providerConflict = SEARCH_UTILS.findSiteSearchProviderByKey(normalizedKey, providers);
+    } else if (normalizedKey !== normalizedAllowedKey) {
+      providerConflict = providers.find(
+        (provider) => String(provider && provider.key ? provider.key : '').trim().toLowerCase() === normalizedKey
+      ) || null;
     }
-    if (typeof SEARCH_UTILS.findSiteSearchProviderByKey === 'function') {
-      return SEARCH_UTILS.findSiteSearchProviderByKey(normalizedKey, providers);
+    if (providerConflict) {
+      return providerConflict;
     }
-    return providers.find(
-      (provider) => String(provider && provider.key ? provider.key : '').trim().toLowerCase() === normalizedKey
+    return aggregateSearches.find(
+      (item) => String(item && item.id || '').trim() !== normalizedAllowedAggregateId &&
+        String(item && item.key || '').trim().toLowerCase() === normalizedKey
     ) || null;
   }
 
@@ -7055,7 +7065,8 @@
   }
 
   function deriveLegacyAggregateSearchAutoGroupEnabled(value) {
-    return normalizeAggregateSearches(value).some(
+    const items = normalizeAggregateSearches(value);
+    return items.length === 0 || items.some(
       (item) => item && item.autoCreateTabGroup === true
     );
   }
@@ -7112,6 +7123,10 @@
       defaultNameBase: getMessage('aggregate_search_default_name', '聚合搜索'),
       editLabel: getMessage('shortcuts_edit', '编辑'),
       groupBadge: getMessage('aggregate_search_badge', '聚合'),
+      keyLabel: getMessage('shortcuts_label_key', '触发词'),
+      keyPlaceholder: getMessage('aggregate_search_key_placeholder', '例如 tech'),
+      keyRequiredError: getMessage('shortcuts_error_key', '请填写触发词'),
+      keySpaceError: getMessage('shortcuts_error_key_space', '触发词不能包含空格'),
       maxSourcesError: getMessage(
         'aggregate_search_max_sources_error',
         '最多可选择 10 个搜索源。'
@@ -7186,6 +7201,7 @@
     if (availability && !availability.available) {
       return {
         id: String(item && item.id ? item.id : ''),
+        key: String(item && item.key ? item.key : ''),
         name: String(item && item.name ? item.name : ''),
         sourceRefs: Array.isArray(item && item.sourceRefs) ? item.sourceRefs.slice() : [],
         sourceSummary: formatTemplate(
@@ -7202,6 +7218,7 @@
     }
     return {
       id: String(item && item.id ? item.id : ''),
+      key: String(item && item.key ? item.key : ''),
       name: String(item && item.name ? item.name : ''),
       sourceRefs: Array.isArray(item && item.sourceRefs) ? item.sourceRefs.slice() : [],
       sourceSummary: formatTemplate(
@@ -7218,6 +7235,7 @@
     aggregateSearchListController.render({
       copy: getAggregateSearchListCopy(),
       items: aggregateSearches.map(getAggregateSearchItemModel),
+      maxKeyLength: Number(AGGREGATE_SEARCH_STORE.MAX_KEY_LENGTH) || 32,
       maxNameLength: Number(AGGREGATE_SEARCH_STORE.MAX_NAME_LENGTH) || 80,
       maxSourceCount: Number(AGGREGATE_SEARCH_STORE.MAX_SOURCE_COUNT) || 10,
       minSourceCount: Number(AGGREGATE_SEARCH_STORE.MIN_SOURCE_COUNT) || 2,
@@ -7228,7 +7246,7 @@
   function saveAggregateSearches(items) {
     const serialized = typeof AGGREGATE_SEARCH_STORE.serializeAggregateSearches === 'function'
       ? AGGREGATE_SEARCH_STORE.serializeAggregateSearches(items)
-      : { version: 1, items: [] };
+      : { version: 2, items: [] };
     const serializedBytes = typeof AGGREGATE_SEARCH_STORE.getSerializedStorageByteLength === 'function'
       ? AGGREGATE_SEARCH_STORE.getSerializedStorageByteLength(
           serialized,
@@ -7305,6 +7323,7 @@
 
   function handleAggregateSearchSave(id, draft) {
     const maxItems = Number(AGGREGATE_SEARCH_STORE.MAX_AGGREGATE_COUNT) || 8;
+    const maxKeyLength = Number(AGGREGATE_SEARCH_STORE.MAX_KEY_LENGTH) || 32;
     const maxNameLength = Number(AGGREGATE_SEARCH_STORE.MAX_NAME_LENGTH) || 80;
     const minSources = Number(AGGREGATE_SEARCH_STORE.MIN_SOURCE_COUNT) || 2;
     const maxSources = Number(AGGREGATE_SEARCH_STORE.MAX_SOURCE_COUNT) || 10;
@@ -7316,6 +7335,34 @@
           'aggregate_search_storage_unavailable_error',
           'Aggregate searches could not be loaded. Reload Settings and try again.'
         )
+      });
+    }
+    const keyRaw = String(draft && draft.key ? draft.key : '').trim().slice(0, maxKeyLength);
+    if (!keyRaw) {
+      return Promise.resolve({
+        ok: false,
+        error: getMessage('shortcuts_error_key', '请填写触发词')
+      });
+    }
+    if (/\s/.test(keyRaw)) {
+      return Promise.resolve({
+        ok: false,
+        error: getMessage('shortcuts_error_key_space', '触发词不能包含空格')
+      });
+    }
+    const key = typeof AGGREGATE_SEARCH_STORE.normalizeAggregateSearchKey === 'function'
+      ? AGGREGATE_SEARCH_STORE.normalizeAggregateSearchKey(keyRaw)
+      : keyRaw.toLowerCase();
+    if (!key) {
+      return Promise.resolve({
+        ok: false,
+        error: getMessage('shortcuts_error_key', '请填写触发词')
+      });
+    }
+    if (findSiteSearchKeyConflict(key, '', currentId)) {
+      return Promise.resolve({
+        ok: false,
+        error: getMessage('shortcuts_error_key_duplicate', '该触发词已存在，请更换')
       });
     }
     const name = String(draft && draft.name ? draft.name : '')
@@ -7348,6 +7395,7 @@
       : null;
     const nextItem = {
       id: currentId || createPersistentId('aggregate'),
+      key,
       name,
       sourceRefs,
       ...(previousItem
@@ -7384,6 +7432,16 @@
         return {
           ok: false,
           error: getMessage('aggregate_search_name_duplicate_error', '已存在同名的聚合搜索。')
+        };
+      }
+      const duplicateKey = items.some((item) => (
+        String(item.id || '') !== currentId &&
+        String(item.key || '').trim().toLowerCase() === key
+      ));
+      if (duplicateKey) {
+        return {
+          ok: false,
+          error: getMessage('shortcuts_error_key_duplicate', '该触发词已存在，请更换')
         };
       }
       const next = currentId

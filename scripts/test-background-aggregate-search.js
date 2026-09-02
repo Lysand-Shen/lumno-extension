@@ -18,6 +18,40 @@ assert.doesNotMatch(
   /MAX_PROVIDER_COUNT/,
   'aggregate execution must rely on the store normalization limit instead of duplicating it'
 );
+assert.strictEqual(
+  aggregateSearch.resolveAggregateSearchAutoGroupEnabled(undefined, []),
+  true,
+  'missing configuration with no legacy definitions should default to grouping'
+);
+assert.strictEqual(
+  aggregateSearch.resolveAggregateSearchAutoGroupEnabled(undefined, [
+    { id: 'new-definition' }
+  ]),
+  true,
+  'definitions without a legacy grouping field should use the new enabled default'
+);
+assert.strictEqual(
+  aggregateSearch.resolveAggregateSearchAutoGroupEnabled(undefined, [
+    { id: 'legacy-off', autoCreateTabGroup: false }
+  ]),
+  false,
+  'legacy definitions that all disabled grouping should remain disabled'
+);
+assert.strictEqual(
+  aggregateSearch.resolveAggregateSearchAutoGroupEnabled(undefined, [
+    { id: 'legacy-off', autoCreateTabGroup: false },
+    { id: 'legacy-on', autoCreateTabGroup: true }
+  ]),
+  true,
+  'any legacy definition with grouping enabled should migrate the global setting to enabled'
+);
+assert.strictEqual(
+  aggregateSearch.resolveAggregateSearchAutoGroupEnabled(false, [
+    { id: 'legacy-on', autoCreateTabGroup: true }
+  ]),
+  false,
+  'an explicit global false value must override legacy definitions'
+);
 assert.ok(
   backgroundSource.includes('AGGREGATE_SEARCH.createAggregateSearchQueryRunner({') &&
     backgroundSource.includes('loadSiteSearchProviders,') &&

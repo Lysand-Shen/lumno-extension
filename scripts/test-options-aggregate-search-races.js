@@ -13,6 +13,49 @@ const createAggregateSearchStateCoordinator = vm.runInNewContext(
   { Error, Object, Promise }
 );
 
+const conflictStart = optionsSource.indexOf('function findSiteSearchKeyConflict(');
+const conflictEnd = optionsSource.indexOf('\n  function isDuplicateTemplate(', conflictStart);
+assert.ok(conflictStart >= 0 && conflictEnd > conflictStart, 'shared trigger conflict helper must exist');
+
+const findSiteSearchKeyConflict = vm.runInNewContext(
+  `(${optionsSource.slice(conflictStart, conflictEnd)})`,
+  {
+    SEARCH_UTILS: {
+      findSiteSearchProviderKeyConflict(key, providers, allowedKey) {
+        return providers.find((provider) => (
+          String(provider.key || '').toLowerCase() === key && key !== allowedKey
+        )) || null;
+      }
+    },
+    aggregateSearches: [
+      { id: 'aggregate-1', key: 'tech', name: 'Technology' }
+    ],
+    customSiteSearchProviders: [{ key: 'docs', name: 'Docs' }],
+    defaultSiteSearchProviders: [{ key: 'gg', name: 'Google' }]
+  }
+);
+
+assert.strictEqual(
+  findSiteSearchKeyConflict('gg', '', '' ).name,
+  'Google',
+  'aggregate editors must reject built-in search triggers'
+);
+assert.strictEqual(
+  findSiteSearchKeyConflict('docs', '', '').name,
+  'Docs',
+  'aggregate editors must reject custom search triggers'
+);
+assert.strictEqual(
+  findSiteSearchKeyConflict('tech', '', '').id,
+  'aggregate-1',
+  'normal search editors must reject aggregate triggers'
+);
+assert.strictEqual(
+  findSiteSearchKeyConflict('tech', '', 'aggregate-1'),
+  null,
+  'editing an aggregate may retain its own trigger'
+);
+
 function cloneItems(items) {
   return (Array.isArray(items) ? items : []).map((item) => ({ ...item }));
 }

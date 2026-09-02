@@ -13,16 +13,18 @@
   'use strict';
 
   const STORAGE_KEY = '_x_extension_aggregate_searches_2026_unique_';
-  const SCHEMA_VERSION = 1;
+  const SCHEMA_VERSION = 2;
   const MIN_SOURCE_COUNT = 2;
   const MAX_SOURCE_COUNT = 10;
   const MAX_AGGREGATE_COUNT = 8;
   const MAX_NAME_LENGTH = 80;
   const MAX_NAME_BYTES = 240;
+  const MAX_KEY_LENGTH = 32;
+  const MAX_KEY_BYTES = 48;
   const MAX_ID_BYTES = 48;
   const MAX_SOURCE_REF_BYTES = 56;
   const SYNC_ITEM_QUOTA_BYTES = 8192;
-  const SYNC_ITEM_BYTE_BUDGET = 7800;
+  const SYNC_ITEM_BYTE_BUDGET = 8064;
 
   function toWellFormedText(value) {
     const source = String(value || '');
@@ -116,6 +118,14 @@
 
   function normalizeId(value) {
     return truncateJsonStringContent(normalizeText(value), MAX_ID_BYTES);
+  }
+
+  function normalizeAggregateSearchKey(value) {
+    const key = truncateJsonStringContent(
+      toWellFormedText(normalizeText(value).slice(0, MAX_KEY_LENGTH)).toLowerCase(),
+      MAX_KEY_BYTES
+    );
+    return key && !/\s/.test(key) ? key : '';
   }
 
   function normalizeSourceToken(value, maxBytes) {
@@ -230,6 +240,7 @@
       return null;
     }
     const id = normalizeId(item.id);
+    const key = normalizeAggregateSearchKey(item.key || item.trigger);
     const name = truncateJsonStringContent(
       toWellFormedText(normalizeText(item.name).slice(0, MAX_NAME_LENGTH)),
       MAX_NAME_BYTES
@@ -242,6 +253,7 @@
     }
     return {
       id,
+      key,
       name,
       sourceRefs,
       autoCreateTabGroup: item.autoCreateTabGroup === true ||
@@ -385,7 +397,7 @@
       return null;
     }
     return {
-      key: `aggregate-${normalized.id}`,
+      key: normalized.key || `aggregate-${normalized.id}`,
       aliases: [],
       name: normalized.name,
       template: '',
@@ -395,6 +407,26 @@
       sourceRefs: normalized.sourceRefs.slice(),
       _xIsAggregateSearch: true
     };
+  }
+
+  function mergeTriggerProviders(providers, definitions) {
+    const result = (Array.isArray(providers) ? providers : []).filter(Boolean).slice();
+    const usedKeys = new Set(result.map((provider) => (
+      String(provider && provider.key || '').trim().toLowerCase()
+    )).filter(Boolean));
+    (Array.isArray(definitions) ? definitions : []).forEach((definition) => {
+      const normalized = normalizeAggregateSearch(definition);
+      if (!normalized || !normalized.key || usedKeys.has(normalized.key)) {
+        return;
+      }
+      const provider = createScopeProvider(normalized);
+      if (!provider) {
+        return;
+      }
+      usedKeys.add(normalized.key);
+      result.push(provider);
+    });
+    return result;
   }
 
   function isAggregateSearchProvider(provider) {
@@ -421,6 +453,8 @@
     MAX_AGGREGATE_COUNT,
     MAX_NAME_LENGTH,
     MAX_NAME_BYTES,
+    MAX_KEY_LENGTH,
+    MAX_KEY_BYTES,
     MAX_ID_BYTES,
     MAX_SOURCE_REF_BYTES,
     SYNC_ITEM_QUOTA_BYTES,
@@ -437,6 +471,8 @@
     isAggregateSearchProvider,
     isAggregateSearchAvailable,
     loadAggregateSearches,
+    mergeTriggerProviders,
+    normalizeAggregateSearchKey,
     normalizeAggregateSearch,
     normalizeAggregateSearches,
     normalizeSourceRefs,
