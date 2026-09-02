@@ -2831,6 +2831,7 @@
       ? item.aliases
       : (Array.isArray(baseProvider && baseProvider.aliases) ? baseProvider.aliases : []);
     const provider = {
+      id: String((item && item.id) || (baseProvider && baseProvider.id) || '').trim(),
       key,
       aliases: aliasSource.filter(Boolean),
       name: String((item && item.name) || (baseProvider && baseProvider.name) || key).trim() || key,
